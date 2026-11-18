@@ -8,3 +8,4 @@ dbt-snowflake>=1.9,<2
 python-dotenv>=1,<2
 pytest>=8,<10
 ruff>=0.9,<1
+sqlfluff>=3.2,<4
