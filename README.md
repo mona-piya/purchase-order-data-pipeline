@@ -34,13 +34,23 @@ Deduplication belongs to the later Airflow `validate_dedupe` task, not this API.
 
 The two provided JSON files are synthetic exercise data. Do not commit real credentials.
 
+### Run Kafka and the source API
+
+```bash
+docker compose up --build
+```
+
+Source API: http://localhost:8000/health. Kafka for clients on this machine: `localhost:9092`.
+Containers on the same compose network use `kafka:29092`.
+On startup, `purchase-orders` is created with 3 partitions and `purchase-orders-failed` with 1.
+
 ### Planned architecture
 
 Source API -> Airflow extraction/dedupe -> Kafka -> Target API and Snowflake RAW -> CORE -> dbt.
 
 ### TODO
 
-- [ ] Kafka KRaft, target API and subscriber
+- [ ] Target API and subscriber (Kafka broker is in docker-compose.yml)
 - [ ] Snowflake RAW landing and CORE merge
 - [ ] Airflow DAG and dbt
 - [ ] Docker Compose and optional observability
