@@ -1,56 +1,65 @@
 # Purchase Order Data Pipeline
 
-## Session 1: Source API
+Personal technical exercise: move synthetic purchase orders from a file-backed **source API** through **Kafka** to a **target API** (SQLite) and later to **Snowflake** (RAW → CORE → dbt), orchestrated by one Airflow DAG.
 
-Personal technical exercise. This first milestone provides file-backed FastAPI endpoints,
-Pydantic validation, timezone-aware deduplication, and CI. Kafka, Target API, Snowflake,
-Airflow and dbt will be implemented in subsequent sessions.
+**Flow:** Source API → (Airflow extract / dedupe / publish) → Kafka → Target subscriber → Target API, and in parallel → Snowflake subscriber → RAW → merge → CORE → dbt MART.
 
-### Run locally (macOS)
+## What works now
+
+- Source API (`:8000`): `GET /purchase-orders`, `changed_since`, `/health`
+- Kafka (KRaft): topics `purchase-orders` (3 partitions) and `purchase-orders-failed`
+- Kafka UI (`:8080`) for topics and consumer groups
+- Target API (`:8001`): SQLite upsert with `LastUpdated` 409 guard; `GET` list returns `{count, items}`
+- Target subscriber (group `target-api`): consume → PUT → commit on 2xx/409
+- `scripts/publish_initial.py`: publish the initial file before Airflow exists
+- CI: ruff, pytest, gitleaks
+
+## Setup (macOS)
 
 ```bash
 cd purchase-order-data-pipeline
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+cp .env.example .env   # set KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
 ruff check .
 pytest -q
-uvicorn services.source_api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Browse http://localhost:8000/docs or test:
+## Run the stack
 
 ```bash
-curl 'http://localhost:8000/health'
-curl 'http://localhost:8000/purchase-orders?load_type=initial'
-curl 'http://localhost:8000/purchase-orders?load_type=incremental'
-curl 'http://localhost:8000/purchase-orders?load_type=incremental&changed_since=2026-11-15T01:15:00Z'
+docker compose up -d --build
 ```
 
-`changed_since` uses **strictly greater than** comparison on UTC-normalized `LastUpdated`.
-It filters the selected source file; it does not automatically combine initial and incremental.
-The source API intentionally preserves all original source records, including duplicate versions.
-Deduplication belongs to the later Airflow `validate_dedupe` task, not this API.
+| Service | URL |
+| --- | --- |
+| Source API | http://127.0.0.1:8000/health · [docs](http://127.0.0.1:8000/docs) |
+| Target API | http://127.0.0.1:8001/health · [docs](http://127.0.0.1:8001/docs) |
+| Kafka UI | http://127.0.0.1:8080 |
+| Kafka (host) | `127.0.0.1:9092` (use IPv4; `localhost` may try IPv6 first) |
+| Kafka (in Compose) | `kafka:29092` |
 
-The two provided JSON files are synthetic exercise data. Do not commit real credentials.
-
-### Run Kafka and the source API
+### Smoke checks
 
 ```bash
-docker compose up --build
+curl -s 'http://127.0.0.1:8000/purchase-orders?load_type=initial' \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["load_type"], d["record_count"])'
+
+python scripts/publish_initial.py
+curl -s 'http://127.0.0.1:8001/purchase-orders' \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("total count:", d["count"])'
 ```
 
-Source API: http://localhost:8000/health. Kafka for clients on this machine: `localhost:9092`.
-Containers on the same compose network use `kafka:29092`.
-On startup, `purchase-orders` is created with 3 partitions and `purchase-orders-failed` with 1.
+Expect about **100** orders in the target API. Publishing again should not raise the count when `LastUpdated` is unchanged (409 path).
 
-### Planned architecture
+`changed_since` on the source API is strict greater-than on UTC `LastUpdated`. The source API returns the file as-is (including duplicate versions); dedupe belongs in Airflow later.
 
-Source API -> Airflow extraction/dedupe -> Kafka -> Target API and Snowflake RAW -> CORE -> dbt.
+The JSON under `data/` is synthetic. Do not commit real credentials (`.env` is gitignored).
 
-### TODO
+## Still to build
 
-- [ ] Target API and subscriber (Kafka broker is in docker-compose.yml)
-- [ ] Snowflake RAW landing and CORE merge
-- [ ] Airflow DAG and dbt
-- [ ] Docker Compose and optional observability
+- [ ] Snowflake subscriber → RAW (run on host or Compose; needs `.env` Snowflake creds)
+- [ ] CORE merge SQL and dbt MART
+- [ ] Airflow DAG `purchase_order_pipeline` and dbt
+- [ ] Optional: OpenTelemetry / Kubernetes

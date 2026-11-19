@@ -11,7 +11,7 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://127.0.0.1:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -44,6 +44,20 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --describe --topic purchase-orders-failed
     restart: "no"
 
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: purchase-order-kafka-ui
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
   source-api:
     build: .
     ports:
@@ -53,5 +67,44 @@ services:
     volumes:
       - ./data:/app/data:ro
 
+  target-api:
+    build: .
+    command: ["uvicorn", "services.target_api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      TARGET_DB_PATH: /data/target.db
+    volumes:
+      - target_data:/data
+
+  target-subscriber:
+    build: .
+    command: ["python", "-m", "services.target_subscriber.main"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_GROUP_ID: target-api
+      TARGET_API_URL: http://target-api:8001
+    depends_on:
+      kafka:
+        condition: service_healthy
+      target-api:
+        condition: service_started
+    restart: unless-stopped
+
+  snowflake-subscriber:
+    profiles: ["snowflake"]
+    build: .
+    command: ["python", "-m", "services.snowflake_subscriber.main"]
+    env_file:
+      - .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_GROUP_ID: snowflake-raw
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   kafka_data:
+  target_data:
