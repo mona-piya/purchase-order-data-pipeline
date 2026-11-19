@@ -17,6 +17,10 @@ credentials.json
 secrets/
 docs/
 
+# Snowflake key-pair
+*.p8
+rsa_key.pub
+
 # IDE and OS
 .vscode/
 .idea/

@@ -59,6 +59,7 @@ The JSON under `data/` is synthetic. Do not commit real credentials (`.env` is g
 
 ## Still to build
 
-- [ ] Snowflake RAW landing and CORE merge
+- [ ] Snowflake subscriber → RAW (run on host or Compose; needs `.env` Snowflake creds)
+- [ ] CORE merge SQL and dbt MART
 - [ ] Airflow DAG `purchase_order_pipeline` and dbt
 - [ ] Optional: OpenTelemetry / Kubernetes

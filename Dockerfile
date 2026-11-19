@@ -5,7 +5,9 @@ RUN pip install --no-cache-dir \
     "uvicorn[standard]>=0.30,<1" \
     "pydantic>=2,<3" \
     "httpx>=0.27,<1" \
-    "confluent-kafka>=2,<3"
+    "confluent-kafka>=2,<3" \
+    "snowflake-connector-python>=3,<5" \
+    "python-dotenv>=1,<2"
 COPY services services
 COPY data data
 COPY scripts scripts
