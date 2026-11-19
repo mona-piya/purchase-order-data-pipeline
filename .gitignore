@@ -35,3 +35,6 @@ airflow/airflow.db
 
 # Local data
 *.log
+
+# Target API local sqlite
+data/target.db

@@ -44,6 +44,20 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --describe --topic purchase-orders-failed
     restart: "no"
 
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: purchase-order-kafka-ui
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
   source-api:
     build: .
     ports:
@@ -53,5 +67,30 @@ services:
     volumes:
       - ./data:/app/data:ro
 
+  target-api:
+    build: .
+    command: ["uvicorn", "services.target_api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      TARGET_DB_PATH: /data/target.db
+    volumes:
+      - target_data:/data
+
+  target-subscriber:
+    build: .
+    command: ["python", "-m", "services.target_subscriber.main"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_GROUP_ID: target-api
+      TARGET_API_URL: http://target-api:8001
+    depends_on:
+      kafka:
+        condition: service_healthy
+      target-api:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   kafka_data:
+  target_data:
