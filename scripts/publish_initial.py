@@ -15,13 +15,13 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
+from dotenv import load_dotenv
+
 # Allow `python scripts/publish_initial.py` from the repo root.
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-import httpx
-from dotenv import load_dotenv
 
 from services.common.models import PurchaseOrderExtract  # noqa: E402
 from services.common.publish import make_producer, publish_orders  # noqa: E402
