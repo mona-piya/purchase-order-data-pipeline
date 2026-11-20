@@ -1,0 +1,57 @@
+version: 2
+
+models:
+  - name: stg_purchase_orders
+    description: CORE purchase order headers, renamed for marts.
+    columns:
+      - name: order_number
+        tests: [unique, not_null]
+      - name: order_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Draft', 'Approved', 'Sent', 'PartiallyReceived', 'Received', 'Cancelled', 'Closed']
+                quote: true
+      - name: supplier_code
+        tests: [not_null]
+
+  - name: stg_purchase_order_lines
+    description: CORE lines with quantity cast for measures.
+    columns:
+      - name: order_line_key
+        tests: [unique, not_null]
+      - name: order_number
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_purchase_orders')
+                field: order_number
+      - name: line_number
+        tests: [not_null]
+      - name: line_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Open', 'Cancelled', 'Closed']
+                quote: true
+
+  - name: stg_purchase_order_line_coding
+    description: Coding splits; project nulls coalesced to UNASSIGNED.
+    columns:
+      - name: coding_key
+        tests: [unique, not_null]
+      - name: order_number
+        tests: [not_null]
+      - name: split_percent
+        tests: [not_null]
+
+  - name: stg_purchase_order_line_goods_receipts
+    description: Goods receipts including reversals.
+    columns:
+      - name: goods_receipt_number
+        tests: [unique, not_null]
+      - name: order_number
+        tests: [not_null]

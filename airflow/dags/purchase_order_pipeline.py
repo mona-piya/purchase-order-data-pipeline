@@ -17,10 +17,10 @@ default_args = {
     'retry_delay': timedelta(minutes=1),
 }
 
-# Manual DAG: start → extract → validate/dedupe → publish → wait RAW/target → merge → verify → end.
+# Manual DAG: start → extract → validate/dedupe → publish → wait RAW/target → merge → dbt → verify → end.
 with DAG(
     dag_id='purchase_order_pipeline',
-    description='Extract → Kafka → wait RAW/target → merge CORE → verify',
+    description='Extract → Kafka → wait RAW/target → merge CORE → dbt → verify',
     default_args=default_args,
     start_date=datetime(2026, 11, 1),
     schedule=None,
@@ -71,6 +71,12 @@ with DAG(
         python_callable=tasks.merge_raw_to_core,
         show_return_value_in_logs=False,
     )
+    # Build MART (staging casts, dims, three facts + tests).
+    dbt_build = PythonOperator(
+        task_id='dbt_build',
+        python_callable=tasks.dbt_build,
+        show_return_value_in_logs=False,
+    )
     # Check counts and advance the watermark Variable.
     verify = PythonOperator(
         task_id='verify',
@@ -79,6 +85,6 @@ with DAG(
     )
 
     start >> extract >> validate_dedupe >> publish
-    publish >> wait_for_snowflake_raw >> merge_raw_to_core
+    publish >> wait_for_snowflake_raw >> merge_raw_to_core >> dbt_build
     publish >> wait_for_target_api
-    [merge_raw_to_core, wait_for_target_api] >> verify >> end
+    [dbt_build, wait_for_target_api] >> verify >> end

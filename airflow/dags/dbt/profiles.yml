@@ -1,0 +1,17 @@
+# Local + CI. Secrets come from environment (see repo-root .env.example).
+purchase_order:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', 'parse-only') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', 'parse-only') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'ACCOUNTADMIN') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'PO_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'PURCHASE_ORDER_DB') }}"
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'RAW') }}"
+      threads: 4
+      client_session_keep_alive: false
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH', '') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD', '') }}"

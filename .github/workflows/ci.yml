@@ -21,6 +21,12 @@ jobs:
           python -m pip install -r requirements.txt
       - run: ruff check .
       - run: pytest -q
+      - name: dbt parse
+        working-directory: airflow/dags/dbt
+        run: dbt parse --profiles-dir .
+      - name: sqlfluff lint dbt models
+        working-directory: airflow/dags/dbt
+        run: sqlfluff lint models --dialect snowflake
   secrets:
     runs-on: ubuntu-latest
     permissions:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from datetime import datetime, timezone
 
 import httpx
@@ -198,6 +199,27 @@ def target_batch_ready(**context) -> bool:
             batch_id, len(missing), len(order_numbers), matched, other_batch,
         )
         return not missing
+
+
+
+# Run dbt build (staging + marts + tests) after CORE merge.
+# Project lives at airflow/dags/dbt (Compose: /opt/airflow/dags/dbt).
+def dbt_build(**context) -> dict:
+    project_dir = os.getenv('DBT_PROJECT_DIR', '/opt/airflow/dags/dbt')
+    profiles_dir = os.getenv('DBT_PROFILES_DIR', project_dir)
+    cmd = [
+        'dbt', 'build',
+        '--project-dir', project_dir,
+        '--profiles-dir', profiles_dir,
+    ]
+    log.info('running %s', ' '.join(cmd))
+    completed = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if completed.stdout:
+        log.info('dbt stdout:\n%s', completed.stdout[-4000:])
+    if completed.returncode != 0:
+        log.error('dbt stderr:\n%s', (completed.stderr or '')[-4000:])
+        raise RuntimeError(f'dbt build failed with exit code {completed.returncode}')
+    return {'dbt_build': 'ok', 'project_dir': project_dir}
 
 
 # Final checks: target API count + CORE header count; set watermark for the next incremental run.

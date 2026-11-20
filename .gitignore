@@ -29,8 +29,9 @@ rsa_key.pub
 Thumbs.db
 
 # dbt
-dbt/target/
-dbt/logs/
+airflow/dags/dbt/target/
+airflow/dags/dbt/logs/
+airflow/dags/dbt/.user.yml
 dbt_packages/
 
 # Airflow
