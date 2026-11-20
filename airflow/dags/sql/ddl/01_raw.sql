@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS PURCHASE_ORDER_PAYLOADS (
     load_dts       TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP()
 );
 
--- Handy for wait_for_raw and demos
+-- Handy for wait_for_snowflake_raw and demos
 CREATE OR REPLACE VIEW PURCHASE_ORDER_PAYLOADS_BATCH_COUNTS AS
 SELECT
     batch_id,

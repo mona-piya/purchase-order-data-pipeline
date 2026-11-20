@@ -1,23 +1,26 @@
 # Purchase Order Data Pipeline
 
-Personal technical exercise: move synthetic purchase orders from a file-backed **source API** through **Kafka** to a **target API** (SQLite) and to **Snowflake** (RAW → CORE → dbt), orchestrated later by one Airflow DAG.
+Personal technical exercise: synthetic purchase orders from a file-backed **source API** through **Kafka** to a **target API** (SQLite) and **Snowflake** (RAW → CORE → later dbt), orchestrated by one Airflow DAG.
 
-**Flow:** Source API → (publish / later Airflow) → Kafka → Target subscriber → Target API, and in parallel → Snowflake subscriber → RAW → merge → CORE → (later) dbt MART.
+**Flow:** Source API → Airflow (`purchase_order_pipeline`) → Kafka → Target subscriber → Target API, and in parallel → Snowflake subscriber → RAW → merge → CORE.
 
 ## What works now
 
-- Source API (`:8000`): `GET /purchase-orders`, `changed_since`, `/health`
-- Kafka (KRaft): topics `purchase-orders` (3 partitions) and `purchase-orders-failed`
-- Kafka UI (`:8080`) for topics and consumer groups
-- Target API (`:8001`): SQLite upsert with `LastUpdated` guard; `GET` list returns `{count, items}`
-  - **200 OK** — applied: `{ "status": "created" | "updated", "order_number", "batch_id" }`
-  - **409 Conflict** — older version rejected: `reason` `older_version_rejected`; message like  
-    `PO1040000 was not updated: the stored purchase order is newer than the one you sent`
-- Target subscriber (group `target-api`): consume → PUT → commit Kafka offset on **2xx** or **409** (both treated as success; 409 is not retried)
-- Snowflake subscriber (group `snowflake-raw`): land messages in `RAW`, then SQL merge into the four CORE tables
-- Snowflake DDL and merge scripts under `snowflake/`
-- `scripts/publish_initial.py`: publish the initial file before Airflow exists
-- CI: ruff, pytest, gitleaks
+- Source API (`:8000`): `GET /purchase-orders` (`load_type`, `changed_since`), `/health`
+- Kafka (KRaft): `purchase-orders` (3 partitions), `purchase-orders-failed`; UI `:8080`
+- Target API (`:8001`): SQLite upsert with `LastUpdated` guard
+  - **200** — created/updated
+  - **409** — older version rejected (`older_version_rejected`)
+- Target subscriber (group `target-api`): PUT → commit on **2xx** or **409**
+- Snowflake subscriber (group `snowflake-raw`): land in `RAW.PURCHASE_ORDER_PAYLOADS` (host process; key-pair via `.env`)
+- Airflow (`:8081`, `admin`/`admin`): DAG `purchase_order_pipeline`
+  - `start` → extract → validate_dedupe → publish → (`wait_for_snowflake_raw` → merge) ∥ `wait_for_target_api` → verify → `end`
+  - Param `load_type`: `initial` | `incremental` (incremental always hits the incremental file; watermark adds `changed_since`)
+  - Watermark Variable `purchase_order_watermark` set only by `verify`
+  - Task logs omit full order payloads (`show_return_value_in_logs=False`)
+- SQL under `airflow/dags/sql/` (DDL + RAW→CORE merge)
+- Tests: `tests/` (APIs, publish, subscribers) + `airflow/dags/tests/` (DAG graph + sensors); CI: ruff, pytest, gitleaks
+- `scripts/publish_initial.py` (pre-Airflow smoke)
 
 ## CORE model (overview)
 
@@ -34,8 +37,6 @@ flowchart TB
   GR -.->|reversal of| GR
 ```
 
-Order → lines → cost-allocation coding rows and goods receipts (receipts can reverse another receipt).
-
 ## Setup (macOS)
 
 ```bash
@@ -43,15 +44,19 @@ cd purchase-order-data-pipeline
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-cp .env.example .env   # Kafka + Snowflake (account, user, key path or password)
-ruff check .
-pytest -q
+# DAG tests need Airflow (same pin as Compose image):
+python -m pip install "apache-airflow==2.10.5" \
+  --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.12.txt"
+cp .env.example .env   # Kafka + Snowflake
+./scripts/check.sh     # ruff + pytest (same gate as CI)
 ```
 
 ## Run the stack
 
 ```bash
 docker compose up -d --build
+# Snowflake subscriber: run on the host (Compose profile needs the key mounted inside the container)
+python -m services.snowflake_subscriber.main
 ```
 
 | Service | URL |
@@ -59,35 +64,33 @@ docker compose up -d --build
 | Source API | http://127.0.0.1:8000/health · [docs](http://127.0.0.1:8000/docs) |
 | Target API | http://127.0.0.1:8001/health · [docs](http://127.0.0.1:8001/docs) |
 | Kafka UI | http://127.0.0.1:8080 |
-| Kafka (host) | `127.0.0.1:9092` (use IPv4; `localhost` may try IPv6 first) |
-| Kafka (in Compose) | `kafka:29092` |
+| Airflow UI | http://127.0.0.1:8081 (`admin` / `admin`) |
+| Kafka (host) | `127.0.0.1:9092` (prefer IPv4; `localhost` may hit IPv6 first) |
+| Kafka (Compose) | `kafka:29092` |
 
-Snowflake subscriber (host; needs `.env`):
+### Airflow demo
 
-```bash
-python -m services.snowflake_subscriber.main
-# or: docker compose --profile snowflake up -d --build snowflake-subscriber
-```
+1. Unpause `purchase_order_pipeline`.
+2. **Trigger** with conf `{"load_type": "initial"}` → ~100 orders; CORE ≈ **100 / 215 / 275 / 181**.
+3. Trigger again with `{"load_type": "incremental"}` → ~18 after dedupe; CORE/target ≈ **104** headers (and **104 / 224 / 286 / 189** after a clean incremental merge).
+4. Keep the host Snowflake subscriber running so `wait_for_snowflake_raw` can succeed.
 
-### Smoke checks
+### Smoke (without Airflow)
 
 ```bash
 curl -s 'http://127.0.0.1:8000/purchase-orders?load_type=initial' \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["load_type"], d["record_count"])'
-
 python scripts/publish_initial.py
 curl -s 'http://127.0.0.1:8001/purchase-orders' \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("total count:", d["count"])'
+  | python3 -c 'import json,sys; print("total count:", json.load(sys.stdin)["count"])'
 ```
 
-Expect about **100** orders in the target API. Publishing again should not raise the count when `LastUpdated` is unchanged (409 path).
+`changed_since` is strict greater-than on UTC `LastUpdated`. Source returns the file as-is (including duplicate versions); Airflow `validate_dedupe` keeps the newest per `OrderNumber`.
 
-`changed_since` on the source API is strict greater-than on UTC `LastUpdated`. The source API returns the file as-is (including duplicate versions); dedupe belongs in Airflow later.
-
-The JSON under `data/` is synthetic. Do not commit real credentials (`.env` and `rsa_key.*` are gitignored).
+Synthetic JSON under `data/`. Do not commit `.env` or `rsa_key.*`.
 
 ## Still to build
 
-- [ ] Airflow DAG `purchase_order_pipeline` (extract → publish → wait → merge → verify)
-- [ ] dbt MART on CORE
+- [ ] dbt MART on CORE (+ `dbt_build` task)
+- [ ] ADRs
 - [ ] Optional: OpenTelemetry / Kubernetes

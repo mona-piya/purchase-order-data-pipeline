@@ -12,6 +12,7 @@ app = FastAPI(title='Purchase Order Target API', version='0.1.0')
 _conn = None
 
 
+# Lazily open the SQLite connection used by all handlers.
 def get_conn():
     global _conn
     if _conn is None:
@@ -19,19 +20,21 @@ def get_conn():
     return _conn
 
 
+# Request body for PUT: Kafka batch_id plus the full order document.
 class UpsertBody(BaseModel):
     batch_id: str = Field(min_length=1)
     order: PurchaseOrder
 
 
+# Liveness check.
 @app.get('/health')
 def health():
     return {'status': 'ok'}
 
 
+# List stored orders; optional batch_id filter for Airflow wait_for_target_api.
 @app.get('/purchase-orders')
 def list_purchase_orders(batch_id: str | None = None):
-    """List stored purchase orders. Optional batch_id filter for Airflow wait_for_target."""
     conn = get_conn()
     items = db.list_orders(conn, batch_id=batch_id)
     body = {'count': len(items), 'items': items}
@@ -40,6 +43,7 @@ def list_purchase_orders(batch_id: str | None = None):
     return body
 
 
+# Fetch one order by OrderNumber (404 if missing).
 @app.get('/purchase-orders/{order_number}')
 def get_purchase_order(order_number: str):
     row = db.get_order(get_conn(), order_number)
@@ -48,6 +52,7 @@ def get_purchase_order(order_number: str):
     return row
 
 
+# Upsert one order. 200 created/updated; 409 if stored LastUpdated is newer.
 @app.put('/purchase-orders/{order_number}')
 def put_purchase_order(order_number: str, body: UpsertBody):
     if body.order.OrderNumber != order_number:

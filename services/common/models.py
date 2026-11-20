@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+# Parse an ISO timestamp (Z or offset) into UTC; reject naive values.
 def parse_timestamp(value: str | datetime) -> datetime:
     if isinstance(value, str):
         value = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -12,10 +13,12 @@ def parse_timestamp(value: str | datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+# Base model: reject unknown fields so bad extracts fail loudly.
 class SourceModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
 
+# One cost-allocation split on a line (account / cost centre / project + %).
 class CodingRow(SourceModel):
     RowIndex: str
     SplitPercent: Decimal
@@ -26,6 +29,7 @@ class CodingRow(SourceModel):
     ProjectCode: str | None = None
 
 
+# One goods receipt (or reversal) on a line.
 class GoodsReceipt(SourceModel):
     GoodsReceiptNumber: str
     ReversedGoodsReceiptNumber: str | None = None
@@ -35,6 +39,7 @@ class GoodsReceipt(SourceModel):
     Recipient: str | None = None
 
 
+# One purchase-order line, with nested coding rows and receipts.
 class OrderLine(SourceModel):
     LineNumber: str
     LineStatus: str
@@ -54,6 +59,7 @@ class OrderLine(SourceModel):
     GoodsReceipts: list[GoodsReceipt] = Field(default_factory=list)
 
 
+# Full purchase order header + lines (the Kafka / API document).
 class PurchaseOrder(SourceModel):
     OrderNumber: str
     OrderType: str | None = None
@@ -69,12 +75,14 @@ class PurchaseOrder(SourceModel):
     GrossSum: Decimal
     OrderLines: list[OrderLine] = Field(default_factory=list)
 
+    # Normalise CreationTime / LastUpdated to UTC with offset.
     @field_validator('CreationTime', 'LastUpdated', mode='before')
     @classmethod
     def utc_timestamps(cls, value: str | datetime) -> datetime:
         return parse_timestamp(value)
 
 
+# Wrapper for a source extract file (initial or incremental).
 class PurchaseOrderExtract(SourceModel):
     source: str
     load_type: Literal['initial', 'incremental']
@@ -82,11 +90,13 @@ class PurchaseOrderExtract(SourceModel):
     record_count: int
     purchased_orders: list[PurchaseOrder]
 
+    # Normalise extracted_at to UTC with offset.
     @field_validator('extracted_at', mode='before')
     @classmethod
     def utc_extracted_at(cls, value: str | datetime) -> datetime:
         return parse_timestamp(value)
 
+    # Ensure record_count matches the orders list length.
     @model_validator(mode='after')
     def check_record_count(self):
         if self.record_count != len(self.purchased_orders):

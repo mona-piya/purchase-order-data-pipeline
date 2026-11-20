@@ -1,3 +1,12 @@
+"""Overview: unit tests for services.target_subscriber.process_message.
+
+Mocks Target API with httpx.MockTransport; FakeProducer captures DLQ.
+Checks:
+  - 200 from Target API → result 'ok', no DLQ
+  - 409 conflict → treated as success ('conflict'), no retry/DLQ
+  - bad Kafka envelope → 'failed' and message on purchase-orders-failed
+"""
+
 import json
 
 import httpx
@@ -6,6 +15,7 @@ from services.common.publish import DLQ_TOPIC
 from services.target_subscriber.main import process_message
 
 
+# Records produce() calls (including DLQ).
 class FakeProducer:
     def __init__(self):
         self.messages = []
@@ -48,6 +58,7 @@ def test_process_ok(initial, monkeypatch):
     assert producer.messages == []
 
 
+# 409 means target already has a newer/equal version — commit offset, do not DLQ.
 def test_process_409_is_success(initial, monkeypatch):
     order = initial.purchased_orders[0].model_dump(mode='json')
 

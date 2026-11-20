@@ -1,5 +1,9 @@
 [tool.pytest.ini_options]
-testpaths = ['tests']
+testpaths = ['tests', 'airflow/dags/tests']
+filterwarnings = [
+    'ignore::starlette.exceptions.StarletteDeprecationWarning',
+    'ignore:Timer and timing metrics publish in seconds were deprecated:DeprecationWarning',
+]
 
 [tool.ruff]
 line-length = 110

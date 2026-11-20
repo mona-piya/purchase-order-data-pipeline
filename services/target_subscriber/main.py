@@ -28,6 +28,7 @@ TARGET_URL = os.getenv('TARGET_API_URL', 'http://localhost:8001').rstrip('/')
 MAX_ATTEMPTS = int(os.getenv('TARGET_PUT_ATTEMPTS', '3'))
 
 
+# PUT one order envelope to the target API.
 def put_order(client: httpx.Client, envelope: dict) -> httpx.Response:
     order = envelope['order']
     order_number = order['OrderNumber']
@@ -38,12 +39,15 @@ def put_order(client: httpx.Client, envelope: dict) -> httpx.Response:
     )
 
 
+# Send a failed message to purchase-orders-failed with an error_reason header.
 def send_to_failed(producer: Producer, raw_value: bytes, key: bytes | None, reason: str) -> None:
     headers = [('error_reason', reason.encode())]
     producer.produce(DLQ_TOPIC, key=key, value=raw_value, headers=headers)
     producer.flush(10)
 
 
+# Handle one Kafka message: validate, PUT with retries, or DLQ.
+# Returns 'ok', 'conflict', or 'failed'.
 def process_message(
     client: httpx.Client,
     producer: Producer,
@@ -51,7 +55,6 @@ def process_message(
     key: bytes | None,
     value: bytes,
 ) -> str:
-    """Returns 'ok', 'conflict', or 'failed' after handling (including DLQ)."""
     try:
         envelope = json.loads(value)
         if 'order' not in envelope or 'batch_id' not in envelope:
@@ -91,6 +94,7 @@ def process_message(
     return 'failed'
 
 
+# Long-running loop: poll Kafka, process, commit offset.
 def run() -> None:
     consumer = Consumer({
         'bootstrap.servers': BOOTSTRAP,

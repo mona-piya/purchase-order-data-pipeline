@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
 """
 
 
+# Open SQLite and ensure the purchase_orders table exists.
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -28,6 +29,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+# Return one stored order as a dict, or None.
 def get_order(conn: sqlite3.Connection, order_number: str) -> dict | None:
     row = conn.execute(
         'SELECT order_number, last_updated, batch_id, document FROM purchase_orders WHERE order_number = ?',
@@ -43,6 +45,7 @@ def get_order(conn: sqlite3.Connection, order_number: str) -> dict | None:
     }
 
 
+# List all orders, or only those with this batch_id.
 def list_orders(conn: sqlite3.Connection, batch_id: str | None = None) -> list[dict]:
     if batch_id is None:
         rows = conn.execute(
@@ -66,6 +69,8 @@ def list_orders(conn: sqlite3.Connection, batch_id: str | None = None) -> list[d
     ]
 
 
+# Insert or replace when incoming LastUpdated is not older than stored.
+# Returns 'created', 'updated', or 'rejected'.
 def upsert(
     conn: sqlite3.Connection,
     *,
@@ -74,10 +79,6 @@ def upsert(
     batch_id: str,
     document: dict,
 ) -> str:
-    """Insert or replace when the incoming LastUpdated is not older.
-
-    Returns 'created', 'updated', or 'rejected'.
-    """
     existing = get_order(conn, order_number)
     incoming = last_updated
     if existing is not None:
@@ -99,10 +100,12 @@ def upsert(
     return 'created' if existing is None else 'updated'
 
 
+# Total number of rows in purchase_orders.
 def count_orders(conn: sqlite3.Connection) -> int:
     return int(conn.execute('SELECT COUNT(*) FROM purchase_orders').fetchone()[0])
 
 
+# How many rows were written with this batch_id.
 def count_batch(conn: sqlite3.Connection, batch_id: str) -> int:
     return int(
         conn.execute(

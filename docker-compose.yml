@@ -105,6 +105,113 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+
+  airflow-postgres:
+    image: postgres:16
+    container_name: purchase-order-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-init:
+    build:
+      context: ./airflow
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "$${AIRFLOW_ADMIN_USER}" \
+          --password "$${AIRFLOW_ADMIN_PASSWORD}" \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-webserver:
+    build:
+      context: ./airflow
+    container_name: purchase-order-airflow-web
+    command: webserver
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment: &airflow-common-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      PYTHONPATH: /opt/airflow
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SOURCE_API_URL: http://source-api:8000
+      TARGET_API_URL: http://target-api:8001
+      SNOWFLAKE_PRIVATE_KEY_PATH: /opt/airflow/rsa_key.p8
+      PO_MERGE_SQL: /opt/airflow/dags/sql/merge/01_merge_raw_to_core.sql
+    env_file:
+      - .env
+    volumes: &airflow-common-volumes
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./services:/opt/airflow/services:ro
+      - ./data:/opt/airflow/data:ro
+      - ./scripts:/opt/airflow/scripts:ro
+      - ./rsa_key.p8:/opt/airflow/rsa_key.p8:ro
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      source-api:
+        condition: service_started
+      target-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  airflow-scheduler:
+    build:
+      context: ./airflow
+    container_name: purchase-order-airflow-scheduler
+    command: scheduler
+    environment: *airflow-common-env
+    env_file:
+      - .env
+    volumes: *airflow-common-volumes
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-webserver:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   kafka_data:
   target_data:
+  airflow_postgres_data:
