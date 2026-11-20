@@ -9,4 +9,3 @@ python-dotenv>=1,<2
 pytest>=8,<10
 ruff>=0.9,<1
 sqlfluff>=3.2,<4
-sqlfluff-templater-dbt>=3.2,<4
