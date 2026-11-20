@@ -27,6 +27,7 @@ from services.common.models import PurchaseOrderExtract  # noqa: E402
 from services.common.publish import make_producer, publish_orders  # noqa: E402
 
 
+# CLI entry: GET initial extract from source API and publish to Kafka.
 def main() -> None:
     load_dotenv(ROOT / '.env')
     parser = argparse.ArgumentParser(description='Publish initial purchase orders to Kafka')

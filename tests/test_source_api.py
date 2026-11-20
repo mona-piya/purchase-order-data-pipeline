@@ -1,4 +1,15 @@
+"""Overview: HTTP tests for services.source_api (file-backed GET /purchase-orders).
+
+Uses FastAPI TestClient — no Docker.
+Checks:
+  - /health
+  - load_type=initial (100) and incremental (20)
+  - changed_since filters on UTC LastUpdated (strict greater-than)
+  - bad changed_since / load_type → 422
+"""
+
 from fastapi.testclient import TestClient
+
 from services.source_api.main import app
 
 client = TestClient(app)
@@ -8,6 +19,7 @@ def test_health():
     assert client.get('/health').json() == {'status': 'ok'}
 
 
+# Synthetic data sizes for the two load types.
 def test_initial_and_incremental():
     for load_type, count in [('initial', 100), ('incremental', 20)]:
         response = client.get('/purchase-orders', params={'load_type': load_type})
@@ -16,6 +28,7 @@ def test_initial_and_incremental():
         assert len(response.json()['purchased_orders']) == count
 
 
+# PO1040078 at 01:30Z is included when changed_since is 01:15Z.
 def test_changed_since_uses_utc_instant():
     response = client.get('/purchase-orders', params={
         'load_type': 'incremental', 'changed_since': '2026-11-15T01:15:00Z',

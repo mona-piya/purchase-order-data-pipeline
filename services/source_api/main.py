@@ -16,6 +16,7 @@ FILES = {
 app = FastAPI(title='Purchase Order Source API', version='0.1.0')
 
 
+# Load one extract JSON file from disk (cached).
 @lru_cache(maxsize=2)
 def read_extract(load_type: str) -> PurchaseOrderExtract:
     path = DATA_DIR / FILES[load_type]
@@ -25,11 +26,13 @@ def read_extract(load_type: str) -> PurchaseOrderExtract:
         raise RuntimeError(f'Cannot load {path}: {exc}') from exc
 
 
+# Liveness check for Compose / demos.
 @app.get('/health')
 def health():
     return {'status': 'ok'}
 
 
+# Serve initial or incremental file; optional changed_since filters on LastUpdated (strict >).
 @app.get('/purchase-orders', response_model=PurchaseOrderExtract)
 def get_purchase_orders(
     load_type: Literal['initial', 'incremental'] = 'initial',

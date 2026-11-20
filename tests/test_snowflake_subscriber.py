@@ -1,9 +1,19 @@
+"""Overview: unit tests for services.snowflake_subscriber parse + DLQ helpers.
+
+No live Snowflake — FakeMsg / FakeProducer only.
+Checks:
+  - parse_row builds PendingRow bind values (order + Kafka metadata)
+  - bad envelope returns an error string (caller sends to DLQ)
+  - send_to_failed produces to purchase-orders-failed
+"""
+
 import json
 
 from services.common.publish import DLQ_TOPIC
 from services.snowflake_subscriber.main import PendingRow, parse_row, send_to_failed
 
 
+# Minimal confluent_kafka.Message stand-in.
 class FakeMsg:
     def __init__(self, value, *, topic='purchase-orders', partition=0, offset=7, key=b'PO1'):
         self._value = value
@@ -51,6 +61,7 @@ def _envelope(order: dict, batch_id: str = 'batch-1') -> bytes:
     }).encode()
 
 
+# Happy path: values align with RAW.PURCHASE_ORDER_PAYLOADS insert columns.
 def test_parse_row_ok(initial):
     order = initial.purchased_orders[0].model_dump(mode='json')
     msg = FakeMsg(_envelope(order), key=order['OrderNumber'].encode())

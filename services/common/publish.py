@@ -10,8 +10,8 @@ TOPIC = 'purchase-orders'
 DLQ_TOPIC = 'purchase-orders-failed'
 
 
+# Build one Kafka message value (ADR-003 envelope + full order document).
 def envelope(order: PurchaseOrder, *, batch_id: str, load_type: str, extracted_at: datetime) -> dict:
-    """One Kafka value: the order document plus the fields ADR-003 requires."""
     return {
         'batch_id': batch_id,
         'event_id': str(uuid.uuid4()),
@@ -23,10 +23,12 @@ def envelope(order: PurchaseOrder, *, batch_id: str, load_type: str, extracted_a
     }
 
 
+# Create a Kafka producer for the given bootstrap servers.
 def make_producer(bootstrap_servers: str) -> Producer:
     return Producer({'bootstrap.servers': bootstrap_servers})
 
 
+# Publish one message per order (key = OrderNumber). Returns how many were sent.
 def publish_orders(
     producer,
     orders: list[PurchaseOrder],
@@ -36,9 +38,9 @@ def publish_orders(
     extracted_at: datetime,
     topic: str = TOPIC,
 ) -> int:
-    """Publish one message per order. Key is OrderNumber, so one order stays on one partition."""
     errors: list[str] = []
 
+    # Collect async delivery failures so we can raise after flush.
     def on_delivery(err, _msg) -> None:
         if err is not None:
             errors.append(str(err))
@@ -59,5 +61,6 @@ def publish_orders(
     return len(orders)
 
 
+# Format a datetime as UTC ISO-8601 with a trailing Z.
 def _utc_z(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')

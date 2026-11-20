@@ -61,20 +61,22 @@ SELECT
 """
 
 
+# One buffered Kafka message plus the bind values for INSERT.
 @dataclass
 class PendingRow:
     kafka_msg: Message
     values: tuple[Any, ...]
 
 
+# Send a failed message to purchase-orders-failed with an error_reason header.
 def send_to_failed(producer: Producer, raw_value: bytes, key: bytes | None, reason: str) -> None:
     headers = [('error_reason', reason.encode())]
     producer.produce(DLQ_TOPIC, key=key, value=raw_value, headers=headers)
     producer.flush(10)
 
 
+# Parse a Kafka message into INSERT bind values, or return an error string for DLQ.
 def parse_row(msg: Message) -> PendingRow | str:
-    """Return a PendingRow, or an error reason string for DLQ."""
     value = msg.value() or b''
     try:
         envelope = json.loads(value)
@@ -108,6 +110,7 @@ def parse_row(msg: Message) -> PendingRow | str:
     return PendingRow(kafka_msg=msg, values=values)
 
 
+# INSERT buffered rows into RAW.PURCHASE_ORDER_PAYLOADS (one execute per row).
 def insert_rows(conn, rows: list[PendingRow]) -> None:
     if not rows:
         return
@@ -124,6 +127,7 @@ def insert_rows(conn, rows: list[PendingRow]) -> None:
         cur.close()
 
 
+# Insert the buffer into Snowflake, then commit Kafka offsets for those messages.
 def flush(consumer: Consumer, conn, buffer: list[PendingRow]) -> int:
     if not buffer:
         return 0
@@ -137,6 +141,7 @@ def flush(consumer: Consumer, conn, buffer: list[PendingRow]) -> int:
     return count
 
 
+# Long-running loop: poll → buffer → flush on size or time.
 def run() -> None:
     consumer = Consumer({
         'bootstrap.servers': BOOTSTRAP,

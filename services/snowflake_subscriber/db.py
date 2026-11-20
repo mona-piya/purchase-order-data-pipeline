@@ -14,6 +14,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
 
+# Load a PEM private key and return DER bytes for the Snowflake connector.
 def _private_key_bytes(path: str, passphrase: str | None) -> bytes:
     raw = Path(path).expanduser().read_bytes()
     password = passphrase.encode() if passphrase else None
@@ -25,6 +26,7 @@ def _private_key_bytes(path: str, passphrase: str | None) -> bytes:
     )
 
 
+# Open a Snowflake connection using env vars (key-pair preferred, else password).
 def connect():
     account = os.environ['SNOWFLAKE_ACCOUNT']
     user = os.environ['SNOWFLAKE_USER']

@@ -1,6 +1,16 @@
+"""Overview: unit tests for services.common.dedupe.dedupe_orders.
+
+Checks:
+  - keep newest LastUpdated per OrderNumber (not last list position)
+  - identical replay of an order collapses to one row
+
+No Kafka / HTTP — pure in-memory list logic.
+"""
+
 from services.common.dedupe import dedupe_orders
 
 
+# Incremental file lists PO1040078 twice; newer version is earlier in the list.
 def test_incremental_keeps_newest_not_last_position(incremental):
     orders = incremental.purchased_orders
     assert orders[7].OrderNumber == orders[17].OrderNumber == 'PO1040078'
@@ -13,6 +23,7 @@ def test_incremental_keeps_newest_not_last_position(incremental):
     assert 'GR700192' in receipts
 
 
+# Same OrderNumber + same payload from initial and incremental → one kept.
 def test_unchanged_replay(initial, incremental):
     old = next(o for o in initial.purchased_orders if o.OrderNumber == 'PO1040000')
     replay = next(o for o in incremental.purchased_orders if o.OrderNumber == 'PO1040000')

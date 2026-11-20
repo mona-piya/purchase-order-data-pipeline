@@ -1,3 +1,13 @@
+"""Overview: HTTP tests for services.target_api (SQLite upsert + LastUpdated guard).
+
+Uses FastAPI TestClient with a temp SQLite file — no Docker.
+Checks:
+  - PUT creates; GET / list returns count + items with batch_id
+  - older LastUpdated → 409 older_version_rejected (stored row unchanged)
+  - same LastUpdated → 200 updated (idempotent overwrite, batch_id can change)
+  - path OrderNumber mismatch → 400
+"""
+
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
@@ -6,6 +16,7 @@ from services.common.models import PurchaseOrder
 from services.target_api import main as target_main
 
 
+# Fresh SQLite DB per test via tmp_path.
 def _client(tmp_path):
     target_main._conn = None
     target_main.DB_PATH = tmp_path / 'target.db'
@@ -32,6 +43,7 @@ def test_put_creates_and_get_returns(initial, tmp_path):
     assert listing['items'][0]['batch_id'] == 'batch-1'
 
 
+# Incoming older than stored → reject; keep original status and batch_id.
 def test_put_older_last_updated_returns_409(initial, tmp_path):
     client = _client(tmp_path)
     order = initial.purchased_orders[0]
@@ -53,6 +65,7 @@ def test_put_older_last_updated_returns_409(initial, tmp_path):
     assert stored['batch_id'] == 'batch-1'
 
 
+# Equal LastUpdated is allowed; batch_id updates to the latest successful write.
 def test_put_same_last_updated_is_idempotent(initial, tmp_path):
     client = _client(tmp_path)
     order = initial.purchased_orders[0]
