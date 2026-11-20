@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: core
+    description: Four ER tables after RAW→CORE merge (contract for dbt).
+    database: PURCHASE_ORDER_DB
+    schema: CORE
+    tables:
+      - name: PURCHASE_ORDER
+      - name: PURCHASE_ORDER_LINE
+      - name: PURCHASE_ORDER_LINE_CODING_ROW
+      - name: PURCHASE_ORDER_LINE_GOODS_RECEIPT

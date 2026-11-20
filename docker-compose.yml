@@ -169,6 +169,8 @@ services:
       TARGET_API_URL: http://target-api:8001
       SNOWFLAKE_PRIVATE_KEY_PATH: /opt/airflow/rsa_key.p8
       PO_MERGE_SQL: /opt/airflow/dags/sql/merge/01_merge_raw_to_core.sql
+      DBT_PROJECT_DIR: /opt/airflow/dags/dbt
+      DBT_PROFILES_DIR: /opt/airflow/dags/dbt
     env_file:
       - .env
     volumes: &airflow-common-volumes

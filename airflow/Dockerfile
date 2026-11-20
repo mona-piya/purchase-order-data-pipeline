@@ -10,3 +10,7 @@ COPY requirements.txt /requirements.txt
 RUN pip install --no-cache-dir \
   --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.12.txt" \
   -r /requirements.txt
+
+# dbt is not on the Airflow constraints file; install after providers.
+RUN pip install --no-cache-dir "dbt-snowflake>=1.9,<2"
+

@@ -4,7 +4,7 @@ Loads the DAG with Airflow DagBag (parse only — no DagRun, Kafka, or Snowflake
 Checks:
   - dag_id / manual schedule / no catchup
   - expected task ids (start … end)
-  - wiring: linear prefix, parallel waits after publish, verify join → end
+  - wiring: linear prefix, parallel waits after publish, merge → dbt → verify join → end
 
 Pair with test_dag_tasks.py for sensor callable behaviour.
 """
@@ -34,6 +34,7 @@ EXPECTED_TASKS = {
     'wait_for_snowflake_raw',
     'wait_for_target_api',
     'merge_raw_to_core',
+    'dbt_build',
     'verify',
     'end',
 }
@@ -87,14 +88,15 @@ def test_parallel_after_publish(dag):
         'wait_for_target_api',
     }
     assert dag.get_task('wait_for_snowflake_raw').downstream_task_ids == {'merge_raw_to_core'}
+    assert dag.get_task('merge_raw_to_core').downstream_task_ids == {'dbt_build'}
+    assert dag.get_task('dbt_build').downstream_task_ids == {'verify'}
     assert dag.get_task('wait_for_target_api').downstream_task_ids == {'verify'}
-    assert dag.get_task('merge_raw_to_core').downstream_task_ids == {'verify'}
 
 
 # verify waits for both branches, then end.
 def test_verify_joins_then_end(dag):
     assert dag.get_task('verify').upstream_task_ids == {
-        'merge_raw_to_core',
+        'dbt_build',
         'wait_for_target_api',
     }
     assert dag.get_task('verify').downstream_task_ids == {'end'}
