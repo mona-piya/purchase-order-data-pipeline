@@ -28,6 +28,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from services.common.publish import DLQ_TOPIC, TOPIC  # noqa: E402
+from services.common.tracing import force_flush, init_tracing, kafka_inject_headers  # noqa: E402
 
 BOOTSTRAP = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '127.0.0.1:9092')
 
@@ -63,10 +64,21 @@ def publish_catchup() -> None:
             'OrderLines': [],
         },
     }
+    tracer = init_tracing('po-publisher')
     p = _producer()
-    p.produce(TOPIC, key=order_number.encode(), value=json.dumps(envelope).encode())
-    p.flush(10)
+    with tracer.start_as_current_span('po.publish') as span:
+        span.set_attribute('order_number', order_number)
+        span.set_attribute('batch_id', envelope['batch_id'])
+        p.produce(
+            TOPIC,
+            key=order_number.encode(),
+            value=json.dumps(envelope).encode(),
+            headers=kafka_inject_headers(),
+        )
+        p.flush(10)
+    force_flush()
     print(f'published catch-up order {order_number} -> topic {TOPIC}')
+    print('Jaeger: http://127.0.0.1:16686  (search tag order_number)')
     print('If target-api was down, watch target-subscriber logs retry; then start target-api.')
 
 

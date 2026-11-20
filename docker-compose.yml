@@ -74,8 +74,13 @@ services:
       - "127.0.0.1:8001:8001"
     environment:
       TARGET_DB_PATH: /data/target.db
+      OTEL_SERVICE_NAME: target-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
     volumes:
       - target_data:/data
+    depends_on:
+      - otel-collector
 
   target-subscriber:
     build: .
@@ -86,11 +91,38 @@ services:
       TARGET_API_URL: http://target-api:8001
       # Retries before DLQ (2^(n-1)s backoff). 10 ≈ enough time to restart target-api in a demo.
       TARGET_PUT_ATTEMPTS: "10"
+      OTEL_SERVICE_NAME: target-subscriber
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
     depends_on:
       kafka:
         condition: service_healthy
       target-api:
         condition: service_started
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: purchase-order-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"   # UI only; OTLP stays on the Docker network
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: purchase-order-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "127.0.0.1:4318:4318"     # host scripts → collector (OTLP HTTP)
+      - "127.0.0.1:4317:4317"     # host scripts → collector (OTLP gRPC)
+    depends_on:
+      - jaeger
     restart: unless-stopped
 
   snowflake-subscriber:

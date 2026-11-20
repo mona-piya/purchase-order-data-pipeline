@@ -292,6 +292,31 @@ docker compose build airflow-webserver airflow-scheduler && docker compose up -d
 
 ---
 
+### 📡 OpenTelemetry / Jaeger
+
+One trace per `OrderNumber`: publish → Kafka (`traceparent` header) → target-subscriber → target-api.
+
+Full step-by-step rebuild + demo commands (local): `docs/OpenTelemetry.md`.
+
+| Piece | URL |
+| --- | --- |
+| Jaeger UI | http://127.0.0.1:16686 |
+| OTLP (host → collector) | `http://127.0.0.1:4318` |
+
+```bash
+docker compose up -d jaeger otel-collector
+docker compose up -d --build target-api target-subscriber
+
+# host publisher (venv)
+export OTEL_SERVICE_NAME=po-publisher
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+python scripts/demo_failures.py publish-catchup
+
+# Jaeger → Search → service `po-publisher` or `target-subscriber` → tag `order_number`=<PO-DEMO-…>
+```
+
+---
+
 ### 💥 Failure demos
 
 ```bash
@@ -313,4 +338,5 @@ python scripts/demo_failures.py peek-failed
 ## 📋 Still to build
 
 - [ ] ADRs
-- [ ] Optional: OpenTelemetry / Kubernetes
+- [x] OpenTelemetry + Jaeger (Compose)
+- [ ] Optional: Kubernetes
