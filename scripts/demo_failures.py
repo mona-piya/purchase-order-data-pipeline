@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from confluent_kafka import Consumer, Producer, TopicPartition
+from confluent_kafka import Consumer, Producer
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
