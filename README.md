@@ -292,6 +292,24 @@ docker compose build airflow-webserver airflow-scheduler && docker compose up -d
 
 ---
 
+### 💥 Failure demos
+
+```bash
+# 1) Catch-up: stop target API, publish one order, start API again
+docker compose stop target-api
+python scripts/demo_failures.py publish-catchup
+# watch: docker logs -f purchase-order-data-pipeline-target-subscriber-1
+docker compose start target-api
+# subscriber retries then applies (TARGET_PUT_ATTEMPTS=10)
+
+# 2) Broken document → purchase-orders-failed
+python scripts/demo_failures.py publish-broken
+python scripts/demo_failures.py peek-failed
+# or Kafka UI http://127.0.0.1:8080 → topic purchase-orders-failed
+```
+
+---
+
 ## 📋 Still to build
 
 - [ ] ADRs
