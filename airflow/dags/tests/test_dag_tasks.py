@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Skip if Airflow is missing (tasks.py imports airflow.models.Variable).
+# Skip if Airflow is missing (tasks.py imports Airflow / Snowflake helpers).
 pytest.importorskip('airflow')
 
 # parents[1] = airflow/dags (for `utils`), parents[3] = repo root (for `services`).

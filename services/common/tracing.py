@@ -20,20 +20,25 @@ _initialized = False
 
 
 def init_tracing(service_name: str | None = None) -> trace.Tracer:
-    """Idempotent tracer setup. No-op exporter if OTEL_SDK_DISABLED=true."""
+    """Idempotent tracer setup. No-op exporter if OTEL_SDK_DISABLED=true.
+
+    If a TracerProvider is already installed (e.g. Airflow native OTel), reuse it
+    so we do not wipe platform DAG/task spans.
+    """
     global _initialized
     name = service_name or os.getenv('OTEL_SERVICE_NAME', 'purchase-order')
     if not _initialized:
-        if os.getenv('OTEL_SDK_DISABLED', '').lower() in ('1', 'true', 'yes'):
+        existing = trace.get_tracer_provider()
+        if isinstance(existing, TracerProvider):
+            log.info('OpenTelemetry reusing existing TracerProvider (service=%s)', name)
+        elif os.getenv('OTEL_SDK_DISABLED', '').lower() in ('1', 'true', 'yes'):
             trace.set_tracer_provider(TracerProvider())
             log.info('OpenTelemetry disabled (OTEL_SDK_DISABLED)')
         else:
             endpoint = os.getenv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://127.0.0.1:4318')
-            # HTTP exporter expects base URL without /v1/traces sometimes — SDK appends it.
             resource = Resource.create({'service.name': name})
             provider = TracerProvider(resource=resource)
             base = endpoint.rstrip('/')
-            # Constructor endpoint must include the signal path (env-only form auto-appends).
             traces_endpoint = base if base.endswith('/v1/traces') else f'{base}/v1/traces'
             exporter = OTLPSpanExporter(endpoint=traces_endpoint)
             provider.add_span_processor(BatchSpanProcessor(exporter))

@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from airflow import DAG
-from airflow.operators.empty import EmptyOperator
-from airflow.operators.python import PythonOperator
-from airflow.sensors.python import PythonSensor
+from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.providers.standard.sensors.python import PythonSensor
 
 from utils import tasks
 
@@ -77,7 +77,7 @@ with DAG(
         python_callable=tasks.dbt_build,
         show_return_value_in_logs=False,
     )
-    # Check counts and advance the watermark Variable.
+    # Check counts and upsert CORE.PIPELINE_WATERMARK for this load_type.
     verify = PythonOperator(
         task_id='verify',
         python_callable=tasks.verify,

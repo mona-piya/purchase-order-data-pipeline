@@ -140,63 +140,30 @@ services:
     restart: unless-stopped
 
 
-  airflow-postgres:
-    image: postgres:16
-    container_name: purchase-order-airflow-postgres
-    environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
-    volumes:
-      - airflow_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  airflow-init:
-    build:
-      context: ./airflow
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        airflow db migrate
-        airflow users create \
-          --username "$${AIRFLOW_ADMIN_USER}" \
-          --password "$${AIRFLOW_ADMIN_PASSWORD}" \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email admin@example.com || true
-    environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
-      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
-    depends_on:
-      airflow-postgres:
-        condition: service_healthy
-    restart: "no"
-
-  airflow-webserver:
+  # Shared Airflow 3.3 LocalExecutor settings (anchor defined here for init + services).
+  airflow-api-server:
     build:
       context: ./airflow
     container_name: purchase-order-airflow-web
-    command: webserver
+    command: api-server
     ports:
       - "127.0.0.1:8081:8080"
     environment: &airflow-common-env
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-po_airflow_jwt_secret}
+      AIRFLOW__API_AUTH__JWT_ISSUER: airflow
+      AIRFLOW__API__EXPOSE_CONFIG: "true"
+      AIRFLOW__TRACES__OTEL_ON: "True"
+      OTEL_SERVICE_NAME: airflow
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp_proto_http
       PYTHONPATH: /opt/airflow
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SOURCE_API_URL: http://source-api:8000
@@ -223,13 +190,54 @@ services:
         condition: service_started
       target-api:
         condition: service_started
+      otel-collector:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 15s
       timeout: 10s
       retries: 10
       start_period: 40s
     restart: unless-stopped
+
+  airflow-postgres:
+    image: postgres:16
+    container_name: purchase-order-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-init:
+    build:
+      context: ./airflow
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        /entrypoint airflow version
+        /entrypoint airflow db migrate
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+    env_file:
+      - .env
+    volumes: *airflow-common-volumes
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    restart: "no"
 
   airflow-scheduler:
     build:
@@ -243,9 +251,26 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
-      airflow-webserver:
+      airflow-api-server:
         condition: service_started
     restart: unless-stopped
+
+  airflow-dag-processor:
+    build:
+      context: ./airflow
+    container_name: purchase-order-airflow-dag-processor
+    command: dag-processor
+    environment: *airflow-common-env
+    env_file:
+      - .env
+    volumes: *airflow-common-volumes
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_started
+    restart: unless-stopped
+
 
 volumes:
   kafka_data:
