@@ -11,8 +11,12 @@ import json
 
 import httpx
 
+from opentelemetry import trace
+
 from services.common.publish import DLQ_TOPIC
 from services.target_subscriber.main import process_message
+
+TRACER = trace.get_tracer('test-target-subscriber')
 
 
 # Records produce() calls (including DLQ).
@@ -51,7 +55,8 @@ def test_process_ok(initial, monkeypatch):
     producer = FakeProducer()
     with httpx.Client(transport=transport) as client:
         result = process_message(
-            client, producer, key=order['OrderNumber'].encode(), value=_envelope(order),
+            client, producer, TRACER,
+            key=order['OrderNumber'].encode(), value=_envelope(order), headers=None,
         )
     assert result == 'ok'
     assert len(calls) == 1
@@ -68,7 +73,8 @@ def test_process_409_is_success(initial, monkeypatch):
     producer = FakeProducer()
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         result = process_message(
-            client, producer, key=order['OrderNumber'].encode(), value=_envelope(order),
+            client, producer, TRACER,
+            key=order['OrderNumber'].encode(), value=_envelope(order), headers=None,
         )
     assert result == 'conflict'
     assert producer.messages == []
@@ -77,6 +83,8 @@ def test_process_409_is_success(initial, monkeypatch):
 def test_bad_envelope_goes_to_failed_topic():
     producer = FakeProducer()
     with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))) as client:
-        result = process_message(client, producer, key=b'x', value=b'not-json')
+        result = process_message(
+            client, producer, TRACER, key=b'x', value=b'not-json', headers=None,
+        )
     assert result == 'failed'
     assert producer.messages[0]['topic'] == DLQ_TOPIC

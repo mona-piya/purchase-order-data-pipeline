@@ -16,7 +16,7 @@ class FakeProducer:
     def __init__(self):
         self.messages = []
 
-    def produce(self, topic, key, value, on_delivery=None):
+    def produce(self, topic, key, value, on_delivery=None, headers=None):
         self.messages.append((topic, key, value))
         if on_delivery is not None:
             on_delivery(None, None)

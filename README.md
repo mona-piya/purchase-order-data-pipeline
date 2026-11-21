@@ -259,7 +259,7 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 
 # DAG tests need Airflow (same pin as Compose image):
-python -m pip install "apache-airflow==3.3.2" \
+python -m pip install "apache-airflow==3.3.2" "apache-airflow-providers-standard==1.19.0" \
   --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt"
 
 cp .env.example .env   # Kafka + Snowflake
