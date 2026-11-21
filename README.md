@@ -47,6 +47,7 @@ Detailed design notes (local only): [`docs/data-analysis.md`](docs/data-analysis
 | Airflow | `:8081` (`admin`/`admin`) | DAG `purchase_order_pipeline` |
 | SQL | `airflow/dags/sql/` | DDL + RAW→CORE merge |
 | dbt | `airflow/dags/dbt/` | Staging → MART; unique/not-null/relationships + splits=100 + category=cost-centre |
+| Streamlit | `scripts/snowflake_streamlit_app.py` | Snowsight app over `MART` (supplier, cost centre, fulfilment, line filters) |
 | Tests / CI | `tests/`, `airflow/dags/tests/` | ruff, pytest, `dbt parse`, sqlfluff, gitleaks |
 | Smoke | `scripts/publish_initial.py` | Pre-Airflow publish check |
 | Kubernetes | `kubernetes/` | minikube + Kustomize; `./scripts/kubernetes_create_secrets.sh` |
@@ -338,7 +339,7 @@ docker compose build airflow-api-server airflow-scheduler airflow-dag-processor 
 
 One trace per `OrderNumber`: publish → Kafka (`traceparent` header) → target-subscriber → target-api.
 
-Full walkthrough: `docs/OpenTelemetry.md`. Airflow **3.3.2** also exports native task spans (Jaeger service `airflow`, e.g. `po.wait.target_api`).
+Full walkthrough: `docs/opentelemetry.md`. Airflow **3.3.2** also exports native task spans (Jaeger service `airflow`, e.g. `po.wait.target_api`).
 
 | Piece | URL |
 | --- | --- |
@@ -398,8 +399,12 @@ kubectl apply -k kubernetes/overlays/minikube
 
 Full steps + port-forwards: [`docs/kubernetes.md`](docs/kubernetes.md) (local).
 
-## 📋 Still to build
+### 📊 Streamlit (Snowsight)
 
-- [ ] ADRs
-- [x] OpenTelemetry + Jaeger (Compose)
-- [x] Kubernetes (minikube + Kustomize)
+After `dbt_build`, charts live in Snowflake rather than a local process.
+
+1. Snowsight → **Projects → Streamlit** → new app. Warehouse **`PO_WH`**.
+2. Replace `streamlit_app.py` with [`scripts/snowflake_streamlit_app.py`](scripts/snowflake_streamlit_app.py).
+3. Leave `pyproject.toml` dependencies as `streamlit[snowflake]` only. Do not add `pandas` — the runtime already has it, and an extra PyPI package needs External Access (this trial cannot reach pypi.org).
+
+The app shows active/received net, supplier and cost-centre bars, fulfilment, receipts vs reversals, and a line table filtered by order, line status, fulfilment, category, and supplier.
