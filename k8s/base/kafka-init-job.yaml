@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init
+  namespace: purchase-orders
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-init
+          image: apache/kafka:3.9.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "waiting for kafka..."
+              for i in $(seq 1 60); do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list && break
+                sleep 2
+              done
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+                --topic purchase-orders --partitions 3 --replication-factor 1
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+                --topic purchase-orders-failed --partitions 1 --replication-factor 1
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --describe --topic purchase-orders
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --describe --topic purchase-orders-failed

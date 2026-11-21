@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: purchase-orders
+  labels:
+    app: airflow-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      containers:
+        - name: airflow
+          image: po-airflow:local
+          imagePullPolicy: IfNotPresent
+          args: ["scheduler"]
+
+          envFrom:
+            - configMapRef:
+                name: airflow-common-env
+            - secretRef:
+                name: snowflake-creds
+          env:
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: AIRFLOW__CORE__FERNET_KEY
+
+          volumeMounts:
+            - name: dags
+              mountPath: /opt/airflow/dags
+            - name: logs
+              mountPath: /opt/airflow/logs
+            - name: services
+              mountPath: /opt/airflow/services
+              readOnly: true
+            - name: data
+              mountPath: /opt/airflow/data
+              readOnly: true
+            - name: scripts
+              mountPath: /opt/airflow/scripts
+              readOnly: true
+            - name: snowflake-key
+              mountPath: /opt/airflow/rsa_key.p8
+              subPath: rsa_key.p8
+              readOnly: true
+
+
+      volumes:
+        - name: dags
+          hostPath:
+            path: /mnt/po/airflow/dags
+            type: Directory
+        - name: logs
+          hostPath:
+            path: /mnt/po/airflow/logs
+            type: DirectoryOrCreate
+        - name: services
+          hostPath:
+            path: /mnt/po/services
+            type: Directory
+        - name: data
+          hostPath:
+            path: /mnt/po/data
+            type: Directory
+        - name: scripts
+          hostPath:
+            path: /mnt/po/scripts
+            type: Directory
+        - name: snowflake-key
+          secret:
+            secretName: snowflake-key
+            items:
+              - key: rsa_key.p8
+                path: rsa_key.p8
+

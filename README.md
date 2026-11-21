@@ -369,8 +369,24 @@ python scripts/demo_failures.py peek-failed
 
 ---
 
+
+## ☸️ Kubernetes (bonus)
+
+Same images as Compose on **minikube** via Kustomize (`k8s/`). Compose stays the default one-command path.
+
+```bash
+minikube start --driver=docker --memory=8192 --cpus=4
+minikube mount "$PWD:/mnt/po"   # leave running
+docker build -t po-pipeline:local . && docker build -t po-airflow:local ./airflow
+minikube image load po-pipeline:local && minikube image load po-airflow:local
+./scripts/k8s_create_secrets.sh
+kubectl apply -k k8s/overlays/minikube
+```
+
+Full steps + port-forwards: [`docs/kubernetes.md`](docs/kubernetes.md) (local).
+
 ## 📋 Still to build
 
 - [ ] ADRs
 - [x] OpenTelemetry + Jaeger (Compose)
-- [ ] Optional: Kubernetes
+- [x] Optional: Kubernetes (minikube + Kustomize)

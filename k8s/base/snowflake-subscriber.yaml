@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snowflake-subscriber
+  namespace: purchase-orders
+  labels:
+    app: snowflake-subscriber
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snowflake-subscriber
+  template:
+    metadata:
+      labels:
+        app: snowflake-subscriber
+    spec:
+      containers:
+        - name: snowflake-subscriber
+          image: po-pipeline:local
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.snowflake_subscriber.main"]
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:29092
+            - name: KAFKA_GROUP_ID
+              value: snowflake-raw
+            - name: SNOWFLAKE_PRIVATE_KEY_PATH
+              value: /secrets/rsa_key.p8
+            - name: SNOWFLAKE_ACCOUNT
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_ACCOUNT
+            - name: SNOWFLAKE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_USER
+            - name: SNOWFLAKE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_PASSWORD
+                  optional: true
+            - name: SNOWFLAKE_ROLE
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_ROLE
+            - name: SNOWFLAKE_WAREHOUSE
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_WAREHOUSE
+            - name: SNOWFLAKE_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_DATABASE
+            - name: SNOWFLAKE_SCHEMA
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_SCHEMA
+            - name: SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+                  optional: true
+          volumeMounts:
+            - name: snowflake-key
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        - name: snowflake-key
+          secret:
+            secretName: snowflake-key
+            items:
+              - key: rsa_key.p8
+                path: rsa_key.p8

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: source-api
+  namespace: purchase-orders
+  labels:
+    app: source-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: source-api
+  template:
+    metadata:
+      labels:
+        app: source-api
+    spec:
+      containers:
+        - name: source-api
+          image: po-pipeline:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PO_DATA_DIR
+              value: /app/data
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          hostPath:
+            path: /mnt/po/data
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: source-api
+  namespace: purchase-orders
+spec:
+  selector:
+    app: source-api
+  ports:
+    - port: 8000
+      targetPort: 8000

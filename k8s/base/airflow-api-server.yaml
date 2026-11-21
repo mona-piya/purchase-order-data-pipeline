@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-api-server
+  namespace: purchase-orders
+  labels:
+    app: airflow-api-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-api-server
+  template:
+    metadata:
+      labels:
+        app: airflow-api-server
+    spec:
+      containers:
+        - name: airflow
+          image: po-airflow:local
+          imagePullPolicy: IfNotPresent
+          args: ["api-server"]
+
+          ports:
+            - containerPort: 8080
+
+          envFrom:
+            - configMapRef:
+                name: airflow-common-env
+            - secretRef:
+                name: snowflake-creds
+          env:
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: snowflake-creds
+                  key: AIRFLOW__CORE__FERNET_KEY
+
+          volumeMounts:
+            - name: dags
+              mountPath: /opt/airflow/dags
+            - name: logs
+              mountPath: /opt/airflow/logs
+            - name: services
+              mountPath: /opt/airflow/services
+              readOnly: true
+            - name: data
+              mountPath: /opt/airflow/data
+              readOnly: true
+            - name: scripts
+              mountPath: /opt/airflow/scripts
+              readOnly: true
+            - name: snowflake-key
+              mountPath: /opt/airflow/rsa_key.p8
+              subPath: rsa_key.p8
+              readOnly: true
+
+          readinessProbe:
+            httpGet:
+              path: /api/v2/monitor/health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 10
+
+
+      volumes:
+        - name: dags
+          hostPath:
+            path: /mnt/po/airflow/dags
+            type: Directory
+        - name: logs
+          hostPath:
+            path: /mnt/po/airflow/logs
+            type: DirectoryOrCreate
+        - name: services
+          hostPath:
+            path: /mnt/po/services
+            type: Directory
+        - name: data
+          hostPath:
+            path: /mnt/po/data
+            type: Directory
+        - name: scripts
+          hostPath:
+            path: /mnt/po/scripts
+            type: Directory
+        - name: snowflake-key
+          secret:
+            secretName: snowflake-key
+            items:
+              - key: rsa_key.p8
+                path: rsa_key.p8
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-api-server
+  namespace: purchase-orders
+spec:
+  selector:
+    app: airflow-api-server
+  ports:
+    - port: 8080
+      targetPort: 8080
