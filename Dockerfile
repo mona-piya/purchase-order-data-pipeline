@@ -7,7 +7,10 @@ RUN pip install --no-cache-dir \
     "httpx>=0.27,<1" \
     "confluent-kafka>=2,<3" \
     "snowflake-connector-python>=3,<5" \
-    "python-dotenv>=1,<2"
+    "python-dotenv>=1,<2" \
+    "opentelemetry-api==1.45.2" \
+    "opentelemetry-sdk==1.45.2" \
+    "opentelemetry-exporter-otlp-proto-http==1.45.2"
 COPY services services
 COPY data data
 COPY scripts scripts

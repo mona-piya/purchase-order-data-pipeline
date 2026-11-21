@@ -9,17 +9,16 @@ import subprocess
 from datetime import datetime, timezone
 
 import httpx
-from airflow.models import Variable
-
 from services.common.dedupe import dedupe_orders
 from services.common.models import PurchaseOrder, PurchaseOrderExtract
 from services.common.publish import DLQ_TOPIC, make_producer, publish_orders
+from services.common.tracing import init_tracing, set_span_error
 from services.snowflake_subscriber.db import connect
 from utils.merge import run_merge
+from utils.watermark import get_changed_since, set_watermark
 
 log = logging.getLogger(__name__)
 
-WATERMARK_VAR = 'purchase_order_watermark'
 SOURCE_URL = os.getenv('SOURCE_API_URL', 'http://127.0.0.1:8000').rstrip('/')
 TARGET_URL = os.getenv('TARGET_API_URL', 'http://127.0.0.1:8001').rstrip('/')
 BOOTSTRAP = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '127.0.0.1:9092')
@@ -45,7 +44,7 @@ def extract(**context) -> dict:
     else:
         # Always hit the incremental file; optional watermark filters LastUpdated > cutoff.
         url = f'{SOURCE_URL}/purchase-orders?load_type=incremental'
-        watermark = Variable.get(WATERMARK_VAR, default_var=None)
+        watermark = get_changed_since()
         if watermark:
             url = f'{url}&changed_since={watermark}'
 
@@ -119,13 +118,19 @@ def publish(**context) -> dict:
     extracted_at = datetime.fromisoformat(payload['extracted_at'].replace('Z', '+00:00'))
 
     producer = make_producer(BOOTSTRAP)
-    count = publish_orders(
-        producer,
-        orders,
-        batch_id=batch_id,
-        load_type=load_type,
-        extracted_at=extracted_at,
-    )
+    tracer = init_tracing('airflow')
+    with tracer.start_as_current_span('po.airflow.publish') as span:
+        span.set_attribute('batch_id', batch_id)
+        span.set_attribute('load_type', load_type)
+        span.set_attribute('airflow.dag_id', 'purchase_order_pipeline')
+        count = publish_orders(
+            producer,
+            orders,
+            batch_id=batch_id,
+            load_type=load_type,
+            extracted_at=extracted_at,
+        )
+        span.set_attribute('published_count', count)
     log.info('published %s orders batch_id=%s', count, batch_id)
     return {
         'batch_id': batch_id,
@@ -180,25 +185,40 @@ def target_batch_ready(**context) -> bool:
     order_numbers = published['order_numbers']
     if not order_numbers:
         return True
-    with httpx.Client(timeout=30.0) as client:
-        missing = []
-        matched = 0
-        other_batch = 0
-        for order_number in order_numbers:
-            response = client.get(f'{TARGET_URL}/purchase-orders/{order_number}')
-            if response.status_code != 200:
-                missing.append(order_number)
-                continue
-            stored_batch = response.json().get('batch_id')
-            if stored_batch == batch_id:
-                matched += 1
-            else:
-                other_batch += 1
-        log.info(
-            'wait_for_target_api batch_id=%s missing=%s / %s matched_batch=%s other_batch=%s',
-            batch_id, len(missing), len(order_numbers), matched, other_batch,
-        )
-        return not missing
+    tracer = init_tracing('airflow')
+    with tracer.start_as_current_span('po.wait.target_api') as span:
+        span.set_attribute('batch_id', batch_id)
+        span.set_attribute('airflow.task_id', 'wait_for_target_api')
+        span.set_attribute('target.expected_count', len(order_numbers))
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                missing = []
+                matched = 0
+                other_batch = 0
+                for order_number in order_numbers:
+                    response = client.get(f'{TARGET_URL}/purchase-orders/{order_number}')
+                    if response.status_code != 200:
+                        missing.append(order_number)
+                        continue
+                    stored_batch = response.json().get('batch_id')
+                    if stored_batch == batch_id:
+                        matched += 1
+                    else:
+                        other_batch += 1
+                log.info(
+                    'wait_for_target_api batch_id=%s missing=%s / %s matched_batch=%s other_batch=%s',
+                    batch_id, len(missing), len(order_numbers), matched, other_batch,
+                )
+                span.set_attribute('target.missing_count', len(missing))
+                span.set_attribute('target.matched_batch', matched)
+                span.set_attribute('target.other_batch', other_batch)
+                span.set_attribute('target.ready', not missing)
+                return not missing
+        except httpx.HTTPError as exc:
+            # Same class of failure you saw in the Airflow log (API down / DNS).
+            set_span_error(span, exc)
+            span.set_attribute('target.ready', False)
+            raise
 
 
 
@@ -222,7 +242,7 @@ def dbt_build(**context) -> dict:
     return {'dbt_build': 'ok', 'project_dir': project_dir}
 
 
-# Final checks: target API count + CORE header count; set watermark for the next incremental run.
+# Final checks: target API count + CORE header count; advance CORE.PIPELINE_WATERMARK.
 def verify(**context) -> dict:
     ti = context['ti']
     published = ti.xcom_pull(task_ids='publish')
@@ -251,7 +271,11 @@ def verify(**context) -> dict:
         if max_lu is None or lu > max_lu:
             max_lu = lu
     if max_lu:
-        Variable.set(WATERMARK_VAR, max_lu)
+        set_watermark(
+            load_type=published['load_type'],
+            changed_since=max_lu,
+            batch_id=published['batch_id'],
+        )
 
     summary = {
         'batch_id': published['batch_id'],
@@ -259,7 +283,7 @@ def verify(**context) -> dict:
         'target_api_count': target_count,
         'core_purchase_order_count': int(core_orders),
         'merge_counts': merge_result.get('counts') if merge_result else None,
-        'watermark': max_lu,
+        'changed_since': max_lu,
         'sample_orders': order_numbers[:5],
     }
     log.info('verify %s', summary)

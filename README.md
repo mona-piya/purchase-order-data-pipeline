@@ -27,7 +27,7 @@ flowchart LR
 | Layer | What it holds |
 | --- | --- |
 | 📥 **RAW** | One Kafka message = one `VARIANT` PO document |
-| 🧱 **CORE** | Four ER tables (merge from RAW) |
+| 🧱 **CORE** | Four ER tables (merge from RAW) + `PIPELINE_WATERMARK` |
 | 🔧 **staging** | dbt views — rename, cast, keys |
 | 📊 **MART** | 6 dimensions + 3 facts |
 
@@ -52,16 +52,50 @@ Detailed design notes (local only): [`docs/data-analysis.md`](docs/data-analysis
 
 ### 🌀 Airflow DAG
 
+#### Pipeline run
+
+```mermaid
+flowchart TD
+  A["Airflow DAG<br/>purchase_order_pipeline"] --> B["extract<br/>Source API"]
+  B --> C["validate_dedupe"]
+  C --> D["publish<br/>Kafka purchase-orders<br/>+ batch_id"]
+
+  D --> E["wait_for_snowflake_raw"]
+  D --> F["wait_for_target_api"]
+
+  D -.-> G["snowflake_subscriber<br/>group snowflake-raw"]
+  D -.-> H["target_subscriber<br/>group target-api"]
+
+  G --> I["Snowflake RAW"]
+  I --> E
+  E --> J["merge_raw_to_core"]
+  J --> K["dbt_build<br/>STAGING → MART"]
+
+  H --> L["Target API SQLite"]
+  L --> F
+
+  K --> M["verify"]
+  F --> M
+  M --> N["end<br/>upsert CORE.PIPELINE_WATERMARK"]
 ```
-start → extract → validate_dedupe → publish
-      → (wait_for_snowflake_raw → merge → dbt_build) ∥ wait_for_target_api
-      → verify → end
+
+#### Watermark cycle
+
+One row per `load_type` (PK `pipeline_name, load_type`). Manual triggers today; later you can schedule initial daily / incremental hourly against the same slots.
+
+```mermaid
+flowchart LR
+  I["slot initial<br/>written by initial verify"] -.->|fallback if incremental empty| E
+  W1["slot incremental<br/>changed_since = T1"] --> E["extract incremental"]
+  E --> V["verify OK"]
+  V --> W2["MERGE incremental slot<br/>changed_since = T2"]
+  V2["initial verify"] --> I2["MERGE initial slot"]
 ```
 
 | Detail | Value |
 | --- | --- |
 | Param `load_type` | `initial` \| `incremental` (incremental always hits the incremental file; watermark adds `changed_since`) |
-| Watermark | Variable `purchase_order_watermark` — set only by `verify` |
+| Watermark | Snowflake `CORE.PIPELINE_WATERMARK` — two slots; `verify` upserts only this run’s `load_type` |
 | Logs | Full order payloads omitted (`show_return_value_in_logs=False`) |
 
 ---
@@ -225,8 +259,8 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 
 # DAG tests need Airflow (same pin as Compose image):
-python -m pip install "apache-airflow==2.10.5" \
-  --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.12.txt"
+python -m pip install "apache-airflow==3.3.2" "apache-airflow-providers-standard==1.19.0" \
+  --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt"
 
 cp .env.example .env   # Kafka + Snowflake
 ./scripts/check.sh     # ruff + pytest (same gate as CI)
@@ -287,7 +321,32 @@ dbt build --profiles-dir .
 Rebuild Airflow once so `dbt_build` has the CLI:
 
 ```bash
-docker compose build airflow-webserver airflow-scheduler && docker compose up -d
+docker compose build airflow-api-server airflow-scheduler airflow-dag-processor && docker compose up -d
+```
+
+---
+
+### 📡 OpenTelemetry / Jaeger
+
+One trace per `OrderNumber`: publish → Kafka (`traceparent` header) → target-subscriber → target-api.
+
+Full step-by-step rebuild + demo commands (local): `docs/OpenTelemetry.md`. Airflow **3.3.2** (LocalExecutor: api-server + scheduler + dag-processor). Jaeger service `airflow` (native task traces + `po.wait.target_api`).
+
+| Piece | URL |
+| --- | --- |
+| Jaeger UI | http://127.0.0.1:16686 |
+| OTLP (host → collector) | `http://127.0.0.1:4318` |
+
+```bash
+docker compose up -d jaeger otel-collector
+docker compose up -d --build target-api target-subscriber
+
+# host publisher (venv)
+export OTEL_SERVICE_NAME=po-publisher
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+python scripts/demo_failures.py publish-catchup
+
+# Jaeger → Search → service `po-publisher` or `target-subscriber` → tag `order_number`=<PO-DEMO-…>
 ```
 
 ---
@@ -313,4 +372,5 @@ python scripts/demo_failures.py peek-failed
 ## 📋 Still to build
 
 - [ ] ADRs
-- [ ] Optional: OpenTelemetry / Kubernetes
+- [x] OpenTelemetry + Jaeger (Compose)
+- [ ] Optional: Kubernetes

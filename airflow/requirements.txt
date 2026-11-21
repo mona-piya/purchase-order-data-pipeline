@@ -1,9 +1,12 @@
-# Airflow 2.10 image only. Do not install these into the API image.
-# Installed in airflow/Dockerfile against the matching constraints file.
-apache-airflow-providers-snowflake==6.0.0
-apache-airflow-providers-common-sql==1.21.0
+# Airflow 3.3.2 image only. Do not install these into the API image.
+# Installed in airflow/Dockerfile against constraints-3.3.2 / Python 3.12.
+apache-airflow-providers-snowflake==6.17.0
+apache-airflow-providers-common-sql==2.1.1
+apache-airflow-providers-fab==3.9.0
+apache-airflow-providers-standard==1.19.0
 confluent-kafka>=2.6,<3
 httpx>=0.27,<1
 pydantic>=2,<3
 python-dotenv>=1,<2
 # dbt-snowflake installed in Dockerfile (outside Airflow constraints)
+# OpenTelemetry: installed via apache-airflow[otel] in Dockerfile (Airflow 3.3 traces).

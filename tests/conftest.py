@@ -8,9 +8,13 @@ Used by API, publish, dedupe, model, and subscriber tests.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+# Unit tests must not talk to a local OTLP collector.
+os.environ.setdefault('OTEL_SDK_DISABLED', 'true')
 
 from services.common.models import PurchaseOrderExtract
 

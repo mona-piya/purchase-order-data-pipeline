@@ -55,8 +55,8 @@ def dag():
 
     from airflow.models import DagBag
 
-    # include_examples=False avoids Airflow tutorial DAGs; .airflowignore skips tests/.
-    bag = DagBag(dag_folder=str(DAGS), include_examples=False)
+    # Airflow 3 DagBag: no include_examples; LOAD_EXAMPLES=false + .airflowignore skip tests/.
+    bag = DagBag(dag_folder=str(DAGS))
     assert bag.import_errors == {}, bag.import_errors
     assert 'purchase_order_pipeline' in bag.dags
     return bag.dags['purchase_order_pipeline']
@@ -65,7 +65,8 @@ def dag():
 # Manual DAG: no schedule, no catchup of historical dates.
 def test_dag_id_and_schedule(dag):
     assert dag.dag_id == 'purchase_order_pipeline'
-    assert dag.schedule_interval is None
+    # Airflow 3: schedule=None on the DAG (schedule_interval was removed).
+    assert dag.schedule is None
     assert dag.catchup is False
 
 
