@@ -3,6 +3,11 @@ testpaths = ['tests', 'airflow/dags/tests']
 filterwarnings = [
     'ignore::starlette.exceptions.StarletteDeprecationWarning',
     'ignore:Timer and timing metrics publish in seconds were deprecated:DeprecationWarning',
+    # Third-party noise (starlette/anyio, Airflow 3.3 + pathspec, providers.standard)
+    'ignore::DeprecationWarning:starlette.testclient',
+    'ignore::DeprecationWarning:airflow._shared.module_loading.file_discovery',
+    'ignore::DeprecationWarning:pathspec.pattern',
+    'ignore::airflow.utils.deprecation_tools.DeprecatedImportWarning',
 ]
 
 [tool.ruff]

@@ -49,6 +49,8 @@ Detailed design notes (local only): [`docs/data-analysis.md`](docs/data-analysis
 | dbt | `airflow/dags/dbt/` | Staging → MART; unique/not-null/relationships + splits=100 + category=cost-centre |
 | Tests / CI | `tests/`, `airflow/dags/tests/` | ruff, pytest, `dbt parse`, sqlfluff, gitleaks |
 | Smoke | `scripts/publish_initial.py` | Pre-Airflow publish check |
+| Kubernetes | `kubernetes/` | minikube + Kustomize; `./scripts/kubernetes_create_secrets.sh` |
+| Local gate | `./scripts/test.sh` | ruff + pytest + dbt parse + sqlfluff |
 
 ### 🌀 Airflow DAG
 
@@ -262,8 +264,8 @@ python -m pip install -r requirements.txt
 python -m pip install "apache-airflow==3.3.2" "apache-airflow-providers-standard==1.19.0" \
   --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt"
 
-cp .env.example .env   # Kafka + Snowflake
-./scripts/check.sh     # ruff + pytest (same gate as CI)
+cp .env.example .env   # fill Snowflake + Fernet; keep rsa_key.p8 next to .env (gitignored)
+./scripts/test.sh      # ruff + pytest + dbt parse + sqlfluff (same gate as CI)
 ```
 
 Synthetic JSON lives under `data/`. Do not commit `.env` or `rsa_key.*`.
@@ -273,10 +275,12 @@ Synthetic JSON lives under `data/`. Do not commit `.env` or `rsa_key.*`.
 ## 🚀 Run the stack
 
 ```bash
+# repo root, venv on, .env + rsa_key.p8 present
 docker compose up -d --build
+# Airflow UI may take ~1 min on first boot (airflow-init migrates the DB).
+# Jaeger + otel-collector are in the default stack (no profile).
 
-# Snowflake subscriber: run on the host
-# (Compose profile needs the key mounted inside the container)
+# Snowflake subscriber on the host (Compose snowflake profile is awkward with the Mac key path)
 python -m services.snowflake_subscriber.main
 ```
 
@@ -286,17 +290,13 @@ python -m services.snowflake_subscriber.main
 | Target API | http://127.0.0.1:8001/health · [docs](http://127.0.0.1:8001/docs) |
 | Kafka UI | http://127.0.0.1:8080 |
 | Airflow UI | http://127.0.0.1:8081 (`admin` / `admin`) |
+| Jaeger UI | http://127.0.0.1:16686 |
 | Kafka (host) | `127.0.0.1:9092` (prefer IPv4; `localhost` may hit IPv6 first) |
 | Kafka (Compose) | `kafka:29092` |
 
-### ▶️ Airflow demo
-
-1. Unpause `purchase_order_pipeline`.
-2. Trigger with conf `{"load_type": "initial"}` → ~100 orders; CORE ≈ **100 / 215 / 275 / 181**.
-3. Trigger again with `{"load_type": "incremental"}` → ~18 after dedupe; CORE ≈ **104 / 224 / 286 / 189**.
-4. Keep the host Snowflake subscriber running so `wait_for_snowflake_raw` can succeed.
-
 ### 💨 Smoke (without Airflow)
+
+Quick check that source → Kafka → target works (stack up; host Snowflake subscriber optional here):
 
 ```bash
 curl -s 'http://127.0.0.1:8000/purchase-orders?load_type=initial' \
@@ -310,7 +310,17 @@ curl -s 'http://127.0.0.1:8001/purchase-orders' \
 
 `changed_since` is strict greater-than on UTC `LastUpdated`. The source returns the file as-is (including duplicate versions); Airflow `validate_dedupe` keeps the newest per `OrderNumber`.
 
+### ▶️ Airflow demo
+
+1. Unpause `purchase_order_pipeline`.
+2. Trigger with param `load_type=initial` → ~100 orders; CORE ≈ **100 / 215 / 275 / 181**.
+3. Trigger again with `load_type=incremental` → ~18 after dedupe; CORE ≈ **104 / 224 / 286 / 189**.
+4. Keep the host Snowflake subscriber running so `wait_for_snowflake_raw` can succeed.
+5. After a green `verify`, check `SELECT * FROM CORE.PIPELINE_WATERMARK;` (two slots: `initial` / `incremental`).
+
 ### 📦 dbt
+
+Host rebuild (optional; DAG task `dbt_build` already runs this in Airflow):
 
 ```bash
 set -a && source .env && set +a
@@ -318,29 +328,26 @@ cd airflow/dags/dbt
 dbt build --profiles-dir .
 ```
 
-Rebuild Airflow once so `dbt_build` has the CLI:
+If the Airflow image was built before dbt was added, rebuild once:
 
 ```bash
 docker compose build airflow-api-server airflow-scheduler airflow-dag-processor && docker compose up -d
 ```
 
----
-
 ### 📡 OpenTelemetry / Jaeger
 
 One trace per `OrderNumber`: publish → Kafka (`traceparent` header) → target-subscriber → target-api.
 
-Full step-by-step rebuild + demo commands (local): `docs/OpenTelemetry.md`. Airflow **3.3.2** (LocalExecutor: api-server + scheduler + dag-processor). Jaeger service `airflow` (native task traces + `po.wait.target_api`).
+Full walkthrough: `docs/OpenTelemetry.md`. Airflow **3.3.2** also exports native task spans (Jaeger service `airflow`, e.g. `po.wait.target_api`).
 
 | Piece | URL |
 | --- | --- |
 | Jaeger UI | http://127.0.0.1:16686 |
 | OTLP (host → collector) | `http://127.0.0.1:4318` |
 
-```bash
-docker compose up -d jaeger otel-collector
-docker compose up -d --build target-api target-subscriber
+With the stack already up from **Run the stack**:
 
+```bash
 # host publisher (venv)
 export OTEL_SERVICE_NAME=po-publisher
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
@@ -349,9 +356,9 @@ python scripts/demo_failures.py publish-catchup
 # Jaeger → Search → service `po-publisher` or `target-subscriber` → tag `order_number`=<PO-DEMO-…>
 ```
 
----
-
 ### 💥 Failure demos
+
+Needs Compose + target-subscriber (from **Run the stack**). Details: `docs/failure_demo.md`.
 
 ```bash
 # 1) Catch-up: stop target API, publish one order, start API again
@@ -369,8 +376,30 @@ python scripts/demo_failures.py peek-failed
 
 ---
 
+## ☸️ Kubernetes
+
+Same images as Compose on **minikube** via Kustomize (`kubernetes/`). Compose stays the default one-command path.
+
+Two **local** images (same split as Compose). Minikube has its own Docker daemon, so you must `image load` after build; public images (Kafka, Postgres, Jaeger, collector) pull on their own.
+
+| Image | Dockerfile | Pods |
+| --- | --- | --- |
+| `po-pipeline:local` | repo root `Dockerfile` | source-api, target-api, target-subscriber, snowflake-subscriber |
+| `po-airflow:local` | `airflow/Dockerfile` | api-server, scheduler, dag-processor, airflow-init |
+
+```bash
+minikube start --driver=docker --memory=8192 --cpus=4
+minikube mount "$PWD:/mnt/po"   # leave running
+docker build -t po-pipeline:local . && docker build -t po-airflow:local ./airflow
+minikube image load po-pipeline:local && minikube image load po-airflow:local
+./scripts/kubernetes_create_secrets.sh
+kubectl apply -k kubernetes/overlays/minikube
+```
+
+Full steps + port-forwards: [`docs/kubernetes.md`](docs/kubernetes.md) (local).
+
 ## 📋 Still to build
 
 - [ ] ADRs
 - [x] OpenTelemetry + Jaeger (Compose)
-- [ ] Optional: Kubernetes
+- [x] Kubernetes (minikube + Kustomize)

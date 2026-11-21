@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-common-env
+  namespace: purchase-orders
+data:
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+  AIRFLOW__API_AUTH__JWT_SECRET: po_airflow_jwt_secret
+  AIRFLOW__API_AUTH__JWT_ISSUER: airflow
+  AIRFLOW__API__EXPOSE_CONFIG: "true"
+  AIRFLOW__TRACES__OTEL_ON: "True"
+  OTEL_SERVICE_NAME: airflow
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_EXPORTER: otlp_proto_http
+  PYTHONPATH: /opt/airflow
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  SOURCE_API_URL: http://source-api:8000
+  TARGET_API_URL: http://target-api:8001
+  SNOWFLAKE_PRIVATE_KEY_PATH: /opt/airflow/rsa_key.p8
+  PO_MERGE_SQL: /opt/airflow/dags/sql/merge/01_merge_raw_to_core.sql
+  DBT_PROJECT_DIR: /opt/airflow/dags/dbt
+  DBT_PROFILES_DIR: /opt/airflow/dags/dbt

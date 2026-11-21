@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: target-subscriber
+  namespace: purchase-orders
+  labels:
+    app: target-subscriber
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: target-subscriber
+  template:
+    metadata:
+      labels:
+        app: target-subscriber
+    spec:
+      containers:
+        - name: target-subscriber
+          image: po-pipeline:local
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.target_subscriber.main"]
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:29092
+            - name: KAFKA_GROUP_ID
+              value: target-api
+            - name: TARGET_API_URL
+              value: http://target-api:8001
+            - name: TARGET_PUT_ATTEMPTS
+              value: "10"
+            - name: OTEL_SERVICE_NAME
+              value: target-subscriber
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf

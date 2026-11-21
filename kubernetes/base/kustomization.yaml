@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: purchase-orders
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - kafka.yaml
+  - kafka-init-job.yaml
+  - jaeger.yaml
+  - otel-collector.yaml
+  - source-api.yaml
+  - target-api.yaml
+  - target-subscriber.yaml
+  - snowflake-subscriber.yaml
+  - airflow-config.yaml
+  - postgres.yaml
+  - airflow-init-job.yaml
+  - airflow-api-server.yaml
+  - airflow-scheduler.yaml
+  - airflow-dag-processor.yaml

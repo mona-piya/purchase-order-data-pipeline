@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-postgres
+  namespace: purchase-orders
+  labels:
+    app: airflow-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-postgres
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: airflow-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: airflow
+            - name: POSTGRES_PASSWORD
+              value: airflow
+            - name: POSTGRES_DB
+              value: airflow
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "airflow"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: airflow-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-postgres
+  namespace: purchase-orders
+spec:
+  selector:
+    app: airflow-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

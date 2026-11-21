@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: target-api
+  namespace: purchase-orders
+  labels:
+    app: target-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: target-api
+  template:
+    metadata:
+      labels:
+        app: target-api
+    spec:
+      containers:
+        - name: target-api
+          image: po-pipeline:local
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "services.target_api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+          ports:
+            - containerPort: 8001
+          env:
+            - name: TARGET_DB_PATH
+              value: /data/target.db
+            - name: OTEL_SERVICE_NAME
+              value: target-api
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: target-api-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: target-api
+  namespace: purchase-orders
+spec:
+  selector:
+    app: target-api
+  ports:
+    - port: 8001
+      targetPort: 8001
