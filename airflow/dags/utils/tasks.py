@@ -227,10 +227,15 @@ def target_batch_ready(**context) -> bool:
 def dbt_build(**context) -> dict:
     project_dir = os.getenv('DBT_PROJECT_DIR', '/opt/airflow/dags/dbt')
     profiles_dir = os.getenv('DBT_PROFILES_DIR', project_dir)
+    # Writable paths: hostPath DAGs are often uid 1000; Airflow runs as 50000.
+    log_path = os.getenv('DBT_LOG_PATH', '/tmp/dbt-logs')
+    target_path = os.getenv('DBT_TARGET_PATH', '/tmp/dbt-target')
     cmd = [
         'dbt', 'build',
         '--project-dir', project_dir,
         '--profiles-dir', profiles_dir,
+        '--log-path', log_path,
+        '--target-path', target_path,
     ]
     log.info('running %s', ' '.join(cmd))
     completed = subprocess.run(cmd, check=False, capture_output=True, text=True)

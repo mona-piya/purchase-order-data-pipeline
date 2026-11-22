@@ -70,9 +70,7 @@ spec:
             path: /mnt/po/airflow/dags
             type: Directory
         - name: logs
-          hostPath:
-            path: /mnt/po/airflow/logs
-            type: DirectoryOrCreate
+          emptyDir: {}
         - name: services
           hostPath:
             path: /mnt/po/services

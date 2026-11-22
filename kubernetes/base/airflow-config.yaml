@@ -5,6 +5,8 @@ metadata:
   namespace: purchase-orders
 data:
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  # TI hostname must resolve from api-server (Service airflow-scheduler:8793)
+  AIRFLOW__CORE__HOSTNAME_CALLABLE: socket.gethostname
   AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -26,3 +28,5 @@ data:
   PO_MERGE_SQL: /opt/airflow/dags/sql/merge/01_merge_raw_to_core.sql
   DBT_PROJECT_DIR: /opt/airflow/dags/dbt
   DBT_PROFILES_DIR: /opt/airflow/dags/dbt
+  DBT_LOG_PATH: /tmp/dbt-logs
+  DBT_TARGET_PATH: /tmp/dbt-target

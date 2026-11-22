@@ -282,7 +282,8 @@ docker compose up -d --build
 # Jaeger + otel-collector are in the default stack (no profile).
 
 # Snowflake subscriber on the host (Compose snowflake profile is awkward with the Mac key path)
-python -m services.snowflake_subscriber.main
+# snowflake-subscriber starts with Compose (needs ./rsa_key.p8).
+# Optional host fallback: python -m services.snowflake_subscriber.main
 ```
 
 | Service | URL |
@@ -316,7 +317,7 @@ curl -s 'http://127.0.0.1:8001/purchase-orders' \
 1. Unpause `purchase_order_pipeline`.
 2. Trigger with param `load_type=initial` → ~100 orders; CORE ≈ **100 / 215 / 275 / 181**.
 3. Trigger again with `load_type=incremental` → ~18 after dedupe; CORE ≈ **104 / 224 / 286 / 189**.
-4. Keep the host Snowflake subscriber running so `wait_for_snowflake_raw` can succeed.
+4. Confirm `snowflake-subscriber` is up (`docker compose ps`) so `wait_for_snowflake_raw` can succeed.
 5. After a green `verify`, check `SELECT * FROM CORE.PIPELINE_WATERMARK;` (two slots: `initial` / `incremental`).
 
 ### 📦 dbt
@@ -379,25 +380,73 @@ python scripts/demo_failures.py peek-failed
 
 ## ☸️ Kubernetes
 
-Same images as Compose on **minikube** via Kustomize (`kubernetes/`). Compose stays the default one-command path.
+Same images as Compose on **minikube** via Kustomize (`kubernetes/`). Compose stays the default one-command path. Do **not** run Compose and this stack together if RAM is tight.
 
-Two **local** images (same split as Compose). Minikube has its own Docker daemon, so you must `image load` after build; public images (Kafka, Postgres, Jaeger, collector) pull on their own.
+Two **local** images (same split as Compose). Minikube has its own Docker daemon, so you must `image load` after build; public images (Kafka, Kafka UI, Postgres, Jaeger, collector) pull on their own (slow pull: `minikube image load provectuslabs/kafka-ui:v0.7.2`).
 
 | Image | Dockerfile | Pods |
 | --- | --- | --- |
 | `po-pipeline:local` | repo root `Dockerfile` | source-api, target-api, target-subscriber, snowflake-subscriber |
 | `po-airflow:local` | `airflow/Dockerfile` | api-server, scheduler, dag-processor, airflow-init |
 
+### Start (from repo root; `.env` + `rsa_key.p8` present)
+
 ```bash
+# 0) Prefer Compose off first
+docker compose down
+
+# 1) Cluster
 minikube start --driver=docker --memory=8192 --cpus=4
-minikube mount "$PWD:/mnt/po"   # leave running
-docker build -t po-pipeline:local . && docker build -t po-airflow:local ./airflow
-minikube image load po-pipeline:local && minikube image load po-airflow:local
+
+# 2) Host mount — leave this terminal open (Ctrl-C only when stopping)
+minikube mount "$PWD:/mnt/po"
+
+# 3) In a second terminal (same repo root):
+docker build -t po-pipeline:local .
+docker build -t po-airflow:local ./airflow
+minikube image load po-pipeline:local
+minikube image load po-airflow:local
+
 ./scripts/kubernetes_create_secrets.sh
 kubectl apply -k kubernetes/overlays/minikube
+
+# 4) Wait until jobs Complete and api-server is Ready (do NOT port-forward Airflow early)
+kubectl -n purchase-orders get pods,jobs,svc
+kubectl -n purchase-orders wait --for=condition=complete job/kafka-init --timeout=300s
+kubectl -n purchase-orders wait --for=condition=complete job/airflow-init --timeout=300s
+kubectl -n purchase-orders wait --for=condition=ready pod -l app=airflow-api-server --timeout=300s
+# optional: kubectl -n purchase-orders get pods -w
+
+# 5) Port-forward for local UIs (same ports as Compose)
+kubectl -n purchase-orders port-forward svc/source-api 8000:8000 &
+kubectl -n purchase-orders port-forward svc/target-api 8001:8001 &
+kubectl -n purchase-orders port-forward svc/airflow-api-server 8081:8080 &
+kubectl -n purchase-orders port-forward svc/kafka-ui 8080:8080 &
+kubectl -n purchase-orders port-forward svc/jaeger 16686:16686 &
+kubectl -n purchase-orders port-forward svc/otel-collector 4318:4318 &
+
+curl -sf http://127.0.0.1:8000/health && curl -sf http://127.0.0.1:8001/health
+# Airflow http://127.0.0.1:8081  (admin/admin)
+# Kafka UI http://127.0.0.1:8080
+# Jaeger  http://127.0.0.1:16686
+# snowflake-subscriber is a Deployment — no host python needed
+kubectl -n purchase-orders get pods -l app=snowflake-subscriber
 ```
 
-Full steps + port-forwards: [`docs/kubernetes.md`](docs/kubernetes.md) (local).
+### Stop
+
+```bash
+# stop background port-forwards (or close those shells)
+pkill -f 'kubectl -n purchase-orders port-forward' || true
+
+kubectl delete -k kubernetes/overlays/minikube
+
+# in the mount terminal: Ctrl-C
+minikube stop
+# harder reset (drops cluster + local images in minikube): minikube delete
+```
+
+More detail: [`docs/kubernetes.md`](docs/kubernetes.md) (local).
 
 ### 📊 Streamlit (Snowsight)
 

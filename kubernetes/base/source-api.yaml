@@ -24,21 +24,12 @@ spec:
           env:
             - name: PO_DATA_DIR
               value: /app/data
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
-              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 5
-      volumes:
-        - name: data
-          hostPath:
-            path: /mnt/po/data
-            type: Directory
 ---
 apiVersion: v1
 kind: Service
