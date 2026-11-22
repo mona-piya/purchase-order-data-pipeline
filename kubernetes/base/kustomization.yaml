@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - pvc.yaml
   - kafka.yaml
+  - kafka-ui.yaml
   - kafka-init-job.yaml
   - jaeger.yaml
   - otel-collector.yaml

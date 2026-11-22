@@ -59,9 +59,8 @@ spec:
             path: /mnt/po/airflow/dags
             type: Directory
         - name: logs
-          hostPath:
-            path: /mnt/po/airflow/logs
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: airflow-logs
         - name: services
           hostPath:
             path: /mnt/po/services
