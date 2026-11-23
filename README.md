@@ -31,7 +31,7 @@ flowchart LR
 | 🔧 **staging** | dbt views — rename, cast, keys |
 | 📊 **MART** | 6 dimensions + 3 facts |
 
-Detailed design notes (local only): [`docs/data-analysis.md`](docs/data-analysis.md).
+Design decisions (ADRs): [`DESIGN_DECISIONS.md`](DESIGN_DECISIONS.md). Detailed data notes (local only): [`docs/data-analysis.md`](docs/data-analysis.md).
 
 ---
 

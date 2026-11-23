@@ -73,6 +73,9 @@ lines = query(
 alloc = query(
     """
     SELECT
+        a.order_number,
+        a.line_number,
+        a.cost_center_code,
         COALESCE(cc.cost_center_name, a.cost_center_code) AS cost_center_name,
         a.allocated_active_net_amount
     FROM PURCHASE_ORDER_DB.MART.FCT_PO_COST_ALLOCATIONS AS a
@@ -176,12 +179,13 @@ st.subheader("Lines")
 def _opts(series):
     return sorted(series.dropna().astype(str).unique())
 
-f1, f2, f3, f4, f5 = st.columns(5)
+f1, f2, f3, f4, f5, f6 = st.columns(6)
 order = f1.selectbox("Order", ["All", *_opts(lines["order_number"])])
 status = f2.multiselect("Line status", _opts(lines["line_status"]))
 fulfilment_f = f3.multiselect("Fulfilment", _opts(lines["derived_line_fulfilment"]))
 category = f4.multiselect("Category", _opts(lines["category_code"]))
 supplier = f5.multiselect("Supplier", _opts(lines["supplier_name"]))
+cost_centre = f6.multiselect("Cost centre", _opts(alloc["cost_center_name"]))
 
 detail = lines.copy()
 detail["order_number"] = detail["order_number"].astype(str)
@@ -195,6 +199,17 @@ if category:
     detail = detail[detail["category_code"].astype(str).isin(category)]
 if supplier:
     detail = detail[detail["supplier_name"].astype(str).isin(supplier)]
+if cost_centre:
+    # Cost centre is allocation grain; keep lines that have ≥1 split to the selected centre(s).
+    keys = (
+        alloc.loc[
+            alloc["cost_center_name"].astype(str).isin(cost_centre),
+            ["order_number", "line_number"],
+        ]
+        .assign(order_number=lambda d: d["order_number"].astype(str))
+        .drop_duplicates()
+    )
+    detail = detail.merge(keys, on=["order_number", "line_number"], how="inner")
 
 st.caption(
     f"{len(detail):,} lines · active net ${detail['active_net_amount'].sum():,.0f}"
